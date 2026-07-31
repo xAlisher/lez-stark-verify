@@ -1,0 +1,6 @@
+experiments/**/target/
+experiments/**/*.receipt
+*.log
+result
+result-*
+.DS_Store
