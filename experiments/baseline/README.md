@@ -46,4 +46,19 @@ cargo test --test emit_credit
 
 _Populated by the `/usr/bin/time -v` prove run — prove wall time + peak RSS below._
 
-<!-- BASELINE_RESULT -->
+**2026-07-31 · wild (x86_64), unbounded** — `RISC0_DEV_MODE` unset (real mode):
+
+| Metric | Value |
+|---|---|
+| `real_prove_emit_credit` | **ok** (1 passed) |
+| Program STARK proof | **116.6 s** wall |
+| Cycles | 644,495 user / **1,048,576 total (2²⁰)** |
+| Peak RSS | **9.13 GB** |
+| CPU | ~1357% (**~13.6 cores**) · 1621 s total CPU |
+
+Confirms the prior ~116.6 s / ~9.6 GB. **This is the row #2's capped matrix caps down
+from** — the questions it answers: does the program proof still complete under 8 / 4 / 2 GB
+`MemoryMax` (and how much slower), and at 4 / 2 / 1 cores?
+
+> Gotcha: the `prove` test `assert!`s `RISC0_DEV_MODE` is **unset** (not `=0`) — exporting
+> `RISC0_DEV_MODE=0` fails the assert before proving. Unset it entirely for a real proof.
