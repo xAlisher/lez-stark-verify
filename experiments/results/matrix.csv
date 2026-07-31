@@ -1,0 +1,10 @@
+label,mem,cpu,outcome,wall,peak_gb
+mem-12g,12G,1400%,OK,2:24.46,9.13
+mem-10g,10G,1400%,OK,2:09.57,9.13
+mem-8g,8G,1400%,OOM,32s(killed),-
+mem-6g,6G,1400%,OOM,11s(killed),-
+mem-4g,4G,1400%,OOM,11s(killed),-
+cpu-4c,12G,400%,OK,5:14.78,9.13
+cpu-2c,12G,200%,OK,9:59.42,9.13
+seg18-4g,4G,1400%,OOM,10s(killed),-
+seg19-6g,6G,1400%,OOM,10s(killed),-
