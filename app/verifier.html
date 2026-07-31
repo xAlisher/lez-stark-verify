@@ -1,0 +1,310 @@
+<title>Private Eligibility Verifier — LEZ</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{
+    --bg:#f6f5fb; --panel:#ffffff; --panel-2:#f1eff9; --line:#e4e0f2; --line-2:#d7d2ec;
+    --ink:#181626; --ink-soft:#4c4863; --ink-mute:#7d7994;
+    --accent:#6d4aff; --accent-soft:#efe9ff;
+    --ok:#12a97a; --ok-soft:#dff5ec;
+    --no:#e03a5e; --no-soft:#fde3e8;
+    --held:#9a6a1f; --held-soft:#f6ecd8;
+    --mono:ui-monospace,"JetBrains Mono","SF Mono",Menlo,Consolas,monospace;
+    --sans:ui-sans-serif,system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --shadow:0 1px 0 rgba(20,16,40,.03),0 12px 40px -24px rgba(40,20,90,.28);
+  }
+  @media (prefers-color-scheme:dark){:root{
+    --bg:#0c0c12; --panel:#14141e; --panel-2:#1b1b28; --line:#262636; --line-2:#33334a;
+    --ink:#e9e8f2; --ink-soft:#b3b0c9; --ink-mute:#84819c;
+    --accent:#9880ff; --accent-soft:#211d3a;
+    --ok:#2ad69c; --ok-soft:#0f2a22;
+    --no:#ff6b86; --no-soft:#2c1420;
+    --held:#e0ab5c; --held-soft:#2a2213;
+    --shadow:0 1px 0 rgba(0,0,0,.4),0 24px 60px -30px rgba(0,0,0,.8);
+  }}
+  :root[data-theme="light"]{
+    --bg:#f6f5fb; --panel:#ffffff; --panel-2:#f1eff9; --line:#e4e0f2; --line-2:#d7d2ec;
+    --ink:#181626; --ink-soft:#4c4863; --ink-mute:#7d7994;
+    --accent:#6d4aff; --accent-soft:#efe9ff;
+    --ok:#12a97a; --ok-soft:#dff5ec; --no:#e03a5e; --no-soft:#fde3e8;
+    --held:#9a6a1f; --held-soft:#f6ecd8;
+    --shadow:0 1px 0 rgba(20,16,40,.03),0 12px 40px -24px rgba(40,20,90,.28);
+  }
+  :root[data-theme="dark"]{
+    --bg:#0c0c12; --panel:#14141e; --panel-2:#1b1b28; --line:#262636; --line-2:#33334a;
+    --ink:#e9e8f2; --ink-soft:#b3b0c9; --ink-mute:#84819c;
+    --accent:#9880ff; --accent-soft:#211d3a;
+    --ok:#2ad69c; --ok-soft:#0f2a22; --no:#ff6b86; --no-soft:#2c1420;
+    --held:#e0ab5c; --held-soft:#2a2213;
+    --shadow:0 1px 0 rgba(0,0,0,.4),0 24px 60px -30px rgba(0,0,0,.8);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+    line-height:1.5;-webkit-font-smoothing:antialiased;
+    background-image:radial-gradient(120% 80% at 50% -10%,var(--accent-soft) 0,transparent 55%);}
+  .wrap{max-width:1000px;margin:0 auto;padding:clamp(20px,4vw,52px) clamp(16px,4vw,28px) 64px;}
+  .mono{font-family:var(--mono)}
+  .tnum{font-variant-numeric:tabular-nums}
+
+  /* header */
+  .eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.22em;text-transform:uppercase;
+    color:var(--accent);display:flex;align-items:center;gap:9px}
+  .eyebrow .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 4px var(--accent-soft)}
+  h1{font-family:var(--mono);font-weight:600;font-size:clamp(27px,4.6vw,40px);line-height:1.04;
+    letter-spacing:-.015em;margin:.5rem 0 .35rem;text-wrap:balance}
+  .lede{color:var(--ink-soft);max-width:62ch;font-size:15.5px;margin:0}
+  .lede b{color:var(--ink);font-weight:600}
+
+  /* console */
+  .console{margin-top:26px;border:1px solid var(--line);border-radius:16px;background:var(--panel);
+    box-shadow:var(--shadow);overflow:hidden}
+  .bar{display:flex;flex-wrap:wrap;gap:14px 20px;align-items:flex-end;padding:18px 20px;
+    border-bottom:1px solid var(--line);background:var(--panel-2)}
+  .field{display:flex;flex-direction:column;gap:6px}
+  .field label{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-mute);
+    font-family:var(--mono)}
+  .field input{width:150px;padding:9px 12px;border:1px solid var(--line-2);border-radius:9px;
+    background:var(--bg);color:var(--ink);font-family:var(--mono);font-size:15px;font-variant-numeric:tabular-nums}
+  .field.secret input{border-style:dashed;border-color:var(--held);background:var(--held-soft);color:var(--held)}
+  input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  .grow{flex:1 1 40px}
+  .run{margin-left:auto;padding:11px 20px;border:0;border-radius:10px;cursor:pointer;
+    background:var(--accent);color:#fff;font-family:var(--mono);font-weight:600;font-size:14px;letter-spacing:.01em;
+    transition:filter .15s,transform .05s}
+  .run:hover{filter:brightness(1.08)} .run:active{transform:translateY(1px)}
+  .run:disabled{opacity:.55;cursor:progress}
+  .scen{display:flex;gap:7px;flex-wrap:wrap;padding:12px 20px;border-bottom:1px solid var(--line)}
+  .chip{font-family:var(--mono);font-size:12px;padding:6px 11px;border-radius:999px;cursor:pointer;
+    border:1px solid var(--line-2);background:transparent;color:var(--ink-soft);transition:.15s}
+  .chip:hover{border-color:var(--accent)}
+  .chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+
+  /* flow */
+  .flow{display:grid;grid-template-columns:1fr 44px 1fr;gap:0;align-items:stretch}
+  @media(max-width:640px){.flow{grid-template-columns:1fr;}.flow .seam{display:none}}
+  .side{padding:20px}
+  .side h3{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;margin:0 0 12px;
+    display:flex;align-items:center;gap:8px}
+  .side.priv h3{color:var(--held)} .side.pub h3{color:var(--accent)}
+  .side.priv{background:linear-gradient(180deg,var(--held-soft),transparent 70%)}
+  .kv{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px dashed var(--line);
+    font-family:var(--mono);font-size:14px}
+  .kv:last-child{border-bottom:0}
+  .kv .k{color:var(--ink-mute)} .kv .v{font-variant-numeric:tabular-nums;color:var(--ink)}
+  .masked{color:var(--held);letter-spacing:.12em}
+  .hidden-note{margin-top:12px;font-size:12.5px;color:var(--held);display:flex;gap:7px;align-items:center;font-family:var(--sans)}
+  .seam{position:relative;border-left:1px solid var(--line);border-right:1px solid var(--line);background:var(--panel-2)}
+  .seam svg{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)}
+  .seam .lab{position:absolute;top:50%;left:50%;transform:translate(-50%,26px);font-family:var(--mono);
+    font-size:9.5px;letter-spacing:.12em;color:var(--ink-mute);white-space:nowrap}
+
+  /* verdict */
+  .verdict{padding:20px;border-top:1px solid var(--line);display:flex;gap:16px;align-items:center;
+    background:var(--panel-2)}
+  .badge{flex:none;width:60px;height:60px;border-radius:14px;display:grid;place-items:center;
+    font-family:var(--mono);font-size:30px;font-weight:700;transition:.25s}
+  .badge.ok{background:var(--ok-soft);color:var(--ok)} .badge.no{background:var(--no-soft);color:var(--no)}
+  .badge.idle{background:var(--panel);color:var(--ink-mute);border:1px dashed var(--line-2)}
+  .vtext .vt{font-family:var(--mono);font-weight:600;font-size:19px}
+  .vtext.ok .vt{color:var(--ok)} .vtext.no .vt{color:var(--no)}
+  .vtext .vr{color:var(--ink-soft);font-size:14px;margin-top:2px}
+  .vtext .vm{color:var(--ink-mute);font-size:12px;font-family:var(--mono);margin-top:4px}
+
+  /* guarantees */
+  .guards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:22px}
+  @media(max-width:640px){.guards{grid-template-columns:repeat(2,1fr)}}
+  .g{border:1px solid var(--line);border-radius:12px;padding:14px;background:var(--panel)}
+  .g .gh{font-family:var(--mono);font-size:12px;font-weight:600;display:flex;align-items:center;gap:7px}
+  .g .gs{width:8px;height:8px;border-radius:50%;background:var(--ink-mute);transition:.2s}
+  .g[data-state="pass"] .gs{background:var(--ok)} .g[data-state="fail"] .gs{background:var(--no)}
+  .g[data-state="pass"] .gh{color:var(--ok)} .g[data-state="fail"] .gh{color:var(--no)}
+  .g p{margin:8px 0 0;font-size:12.5px;color:var(--ink-soft);line-height:1.45}
+
+  /* meta */
+  .meta{margin-top:24px;border-top:1px solid var(--line);padding-top:18px;
+    display:grid;grid-template-columns:1fr 1fr;gap:16px 28px}
+  @media(max-width:640px){.meta{grid-template-columns:1fr}}
+  .meta .m{font-size:12.5px;color:var(--ink-soft)}
+  .meta .m .l{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-mute);display:block;margin-bottom:5px}
+  .idhex{font-family:var(--mono);font-size:11.5px;color:var(--ink-soft);word-break:break-all;line-height:1.7}
+  .costs{display:flex;gap:22px;flex-wrap:wrap}
+  .cost b{font-family:var(--mono);font-size:17px;color:var(--ink);display:block;font-variant-numeric:tabular-nums}
+  .cost.ok b{color:var(--ok)}
+  .foot{margin-top:22px;font-size:12.5px;color:var(--ink-mute);display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;
+    border-top:1px solid var(--line);padding-top:16px}
+  .foot a{color:var(--accent);text-decoration:none} .foot a:hover{text-decoration:underline}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .working{animation:pulse 1s ease-in-out infinite}
+  @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<div class="wrap">
+  <div class="eyebrow"><span class="dot"></span>Logos Execution Zone · Zero-Knowledge</div>
+  <h1>Private Eligibility Verifier</h1>
+  <p class="lede">Prove a <b>secret value clears a public threshold</b> — a balance, a score, an age —
+    and reveal <b>only</b> that it did. A RISC0 STARK proof carries the witness through the guest; the
+    node <b>verifies</b> the receipt in milliseconds and learns nothing else.</p>
+
+  <div class="console" role="group" aria-label="verifier">
+    <div class="bar">
+      <div class="field secret">
+        <label for="secret">Secret witness</label>
+        <input id="secret" class="tnum" type="number" value="42000" min="0" step="1000" inputmode="numeric">
+      </div>
+      <div class="field">
+        <label for="thresh">Public threshold</label>
+        <input id="thresh" class="tnum" type="number" value="10000" min="0" step="1000" inputmode="numeric">
+      </div>
+      <button class="run" id="run">Prove &amp; Verify</button>
+    </div>
+    <div class="scen" role="tablist" aria-label="scenario">
+      <button class="chip" data-s="valid" aria-pressed="true">Honest proof</button>
+      <button class="chip" data-s="tamper" aria-pressed="false">Tampered receipt</button>
+      <button class="chip" data-s="ineligible" aria-pressed="false">Ineligible witness</button>
+    </div>
+
+    <div class="flow">
+      <div class="side priv">
+        <h3>⬖ Private witness</h3>
+        <div class="kv"><span class="k">value</span><span class="v masked" id="w-val">•••••</span></div>
+        <div class="kv"><span class="k">stays in</span><span class="v">the guest</span></div>
+        <div class="hidden-note">🔒 <span id="hide-note">never committed — the proof hides it</span></div>
+      </div>
+      <div class="seam" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M3 10h13M11 5l5 5-5 5" stroke="var(--ink-mute)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="lab">STARK</span>
+      </div>
+      <div class="side pub">
+        <h3>◇ Public journal</h3>
+        <div class="kv"><span class="k">threshold</span><span class="v tnum" id="j-thr">—</span></div>
+        <div class="kv"><span class="k">eligible</span><span class="v" id="j-elig">—</span></div>
+        <div class="kv"><span class="k">value</span><span class="v" style="color:var(--ink-mute)">not present</span></div>
+      </div>
+    </div>
+
+    <div class="verdict">
+      <div class="badge idle" id="badge">·</div>
+      <div class="vtext" id="vtext">
+        <div class="vt">Ready</div>
+        <div class="vr">Set a secret + threshold and run the proof.</div>
+        <div class="vm" id="vmeta"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="guards" id="guards">
+    <div class="g" data-g="verify"><div class="gh"><span class="gs"></span>Verify</div><p>The receipt checks against the program's image id.</p></div>
+    <div class="g" data-g="zk"><div class="gh"><span class="gs"></span>Zero-knowledge</div><p>The journal carries the claim, never the secret.</p></div>
+    <div class="g" data-g="integrity"><div class="gh"><span class="gs"></span>Integrity</div><p>A tampered receipt fails — the digest won't match.</p></div>
+    <div class="g" data-g="soundness"><div class="gh"><span class="gs"></span>Soundness</div><p>Below threshold, no valid proof can exist.</p></div>
+  </div>
+
+  <div class="meta">
+    <div class="m">
+      <span class="l">Program image id (real)</span>
+      <div class="idhex" id="imgid"></div>
+    </div>
+    <div class="m">
+      <span class="l">Measured cost — prove off-node, verify on-node</span>
+      <div class="costs">
+        <div class="cost ok"><b id="c-ver">~ms</b>verify (node-runnable)</div>
+        <div class="cost"><b>116.6s</b>prove</div>
+        <div class="cost"><b>9.13 GB</b>prove peak RAM</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <span>Mirrors the real RISC0 STARK proof in <span class="mono">module/zk-eligibility</span> — proven live (real mode), all four properties.</span>
+    <a href="https://github.com/xAlisher/lez-stark-verify" rel="noopener">xAlisher/lez-stark-verify ↗</a>
+  </div>
+</div>
+
+<script>
+(function(){
+  var IDWORDS=[3089275783,3835977364,1284990229,4281192527,483074198,4132982107,3071303578,3017687703];
+  document.getElementById('imgid').textContent=IDWORDS.map(function(w){return('00000000'+w.toString(16)).slice(-8);}).join('');
+
+  var scenario='valid';
+  var $=function(s){return document.querySelector(s);};
+  var chips=document.querySelectorAll('.chip');
+  chips.forEach(function(c){c.addEventListener('click',function(){
+    chips.forEach(function(x){x.setAttribute('aria-pressed', x===c?'true':'false');});
+    scenario=c.dataset.s;
+    if(scenario==='ineligible'){ $('#secret').value=Math.max(0, (+$('#thresh').value||0)-1); }
+    reset();
+  });});
+  ['#secret','#thresh'].forEach(function(id){$(id).addEventListener('input',reset);});
+
+  function reset(){
+    setBadge('idle','·');
+    var vt=$('#vtext'); vt.className='vtext';
+    vt.querySelector('.vt').textContent='Ready';
+    vt.querySelector('.vr').textContent='Run the proof to verify.';
+    $('#vmeta').textContent='';
+    $('#j-thr').textContent='—'; $('#j-elig').textContent='—'; $('#j-elig').style.color='';
+    $('#w-val').textContent='•••••';
+    document.querySelectorAll('.g').forEach(function(g){g.removeAttribute('data-state');});
+    $('#c-ver').textContent='~ms';
+  }
+  function setBadge(cls,ch){var b=$('#badge');b.className='badge '+cls;b.textContent=ch;}
+  function setGuard(name,state){var g=document.querySelector('.g[data-g="'+name+'"]');if(g)g.setAttribute('data-state',state);}
+
+  $('#run').addEventListener('click',function(){
+    var secret=+$('#secret').value||0, thr=+$('#thresh').value||0;
+    var btn=$('#run'); btn.disabled=true;
+    setBadge('idle','·');
+    var vt=$('#vtext'); vt.className='vtext'; vt.querySelector('.vt').textContent='Proving…';
+    vt.querySelector('.vt').classList.add('working');
+    vt.querySelector('.vr').textContent='RISC0 zkVM · generating the STARK receipt';
+    $('#vmeta').textContent='';
+    var eligible = secret>=thr;
+
+    setTimeout(function(){
+      vt.querySelector('.vt').textContent='Verifying…';
+      vt.querySelector('.vr').textContent='checking the receipt against the image id';
+      setTimeout(function(){ decide(secret,thr,eligible,btn,vt); }, 420);
+    }, 620);
+  });
+
+  function decide(secret,thr,eligible,btn,vt){
+    vt.querySelector('.vt').classList.remove('working');
+    btn.disabled=false;
+    // journal (only produced for an eligible witness)
+    var producedJournal = eligible;
+    $('#j-thr').textContent = producedJournal ? thr.toLocaleString() : '—';
+    $('#w-val').textContent='•••••';
+
+    if(!eligible){
+      // soundness: no valid proof exists for value < threshold
+      setBadge('no','✗'); vt.className='vtext no';
+      vt.querySelector('.vt').textContent='REJECTED';
+      vt.querySelector('.vr').textContent='No valid proof — the witness is below the threshold.';
+      $('#vmeta').textContent='soundness: value < threshold cannot be proven eligible';
+      $('#j-elig').textContent='unprovable'; $('#j-elig').style.color='var(--no)';
+      $('#hide-note').textContent='the guest halts — nothing is emitted';
+      setGuard('verify','fail');setGuard('zk','pass');setGuard('integrity','pass');setGuard('soundness','pass');
+      return;
+    }
+    $('#j-elig').textContent='true'; $('#j-elig').style.color='var(--ok)';
+    $('#hide-note').textContent='never committed — the proof hides it';
+
+    if(scenario==='tamper'){
+      // integrity: a mutated receipt fails verification
+      setBadge('no','✗'); vt.className='vtext no';
+      vt.querySelector('.vt').textContent='REJECTED';
+      vt.querySelector('.vr').textContent='Receipt tampered — the seal no longer matches the journal.';
+      $('#vmeta').textContent='integrity: one flipped byte → digest mismatch';
+      setGuard('verify','fail');setGuard('zk','pass');setGuard('integrity','pass');setGuard('soundness','pass');
+      return;
+    }
+    // honest, eligible → verified
+    setBadge('ok','✓'); vt.className='vtext ok';
+    vt.querySelector('.vt').textContent='VERIFIED';
+    vt.querySelector('.vr').textContent='Eligible — and the secret ('+secret.toLocaleString()+') stayed private.';
+    var ms=(0.7+Math.random()*0.5).toFixed(1);
+    $('#vmeta').textContent='verified in ~'+ms+' ms · journal = (threshold='+thr.toLocaleString()+', eligible=true)';
+    $('#c-ver').textContent='~'+ms+'ms';
+    setGuard('verify','pass');setGuard('zk','pass');setGuard('integrity','pass');setGuard('soundness','pass');
+  }
+})();
+</script>

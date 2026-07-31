@@ -1,25 +1,19 @@
 # app/ — sample app: verify a STARK proof on LEZ (epic #4)
 
-A small demo on top of the verifier module (#3) that tells the zk story end to end and is
-**cheap to run** (verify-side only, per `docs/research.md`).
+An interactive UI for the ZK **private-eligibility** verifier (module #3): prove a secret
+value clears a public threshold, revealing only the claim.
 
-## Demo flow
+- **`verifier.html`** — self-contained demo UI (theme-aware). Shows the flow: private
+  witness ⟶ STARK ⟶ public journal ⟶ verdict, with the four guarantees (verify /
+  zero-knowledge / integrity / soundness) and the real image id + measured costs.
+  Live (private): https://claude.ai/code/artifact/ac28ec40-bac1-42e7-9bfd-130505b6bdfa
+- It **mirrors the real RISC0 STARK proof** in `module/zk-eligibility/` (proven live, real
+  mode) — the proof enforces exactly what the UI shows: eligible ⇔ value ≥ threshold,
+  witness hidden, tampered/ineligible rejected.
 
-1. **Load a receipt** — a pre-proven `emit_credit` RISC0 receipt (proving happens off-node;
-   see `experiments/baseline/`).
-2. **Verify on LEZ** — call the module's `verifyReceipt(receipt, imageId)`.
-3. **Show the result:**
-   - a valid receipt → **✓ verified** + the decoded journal (the credit note / bound recipient);
-   - a **redirected-witness** receipt → **✗ rejected** (the recipient bind is in-circuit, so a
-     redirect is unprovable) — the money shot: *verification actually rejects a cheat.*
+## Next (productization)
 
-## Why this is the right demo
-
-- Runs on modest hardware (verify is ms-scale / tiny RAM — the prove-side 9 GB stays off-node).
-- Shows a real, non-trivial zk property (private recipient binding), not a toy.
-- Mirrors the one-click node UX approach: one screen, clear ✓/✗, copyable image id + journal.
-
-## Build order
-
-Blocked on #3 (the module). Then: a thin QML/Basecamp UI (or a CLI first) that drives
-`verifyReceipt` over the two fixtures and renders the verdict.
+Wrap the `verify` side as a Basecamp `mkLogosQmlModule` (off the `zone_sequencer` template):
+C++/Rust backend exposing `verifyReceipt(receipt, imageId)` → this same UI in-app, driving
+real receipts from `experiments/baseline/`. Verify is node-runnable (~ms); proving stays
+off-node (~10 GB, per `experiments/results/feasibility.md`).
