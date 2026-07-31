@@ -90,10 +90,19 @@ public verify.
   anyone verifies the receipt.
 - **Trust:** honest-threshold committee = a natural fit for the **LEZ sequencer set**.
 - **Prior art:** *collaborative zk-SNARKs* (Ozdemir & Boneh, USENIX '22) and follow-ups
-  (zkSaaS) — proving with a secret-shared witness. **Research-grade**: more communication,
-  slower than solo proving. Whether it composes with RISC0/STARK specifically is the open
-  question — likely needs a proof system chosen for MPC-friendliness, not RISC0 out of the box.
-- **Maturity:** the highest-payoff and the least turnkey. This is the real spike.
+  (zkSaaS, scalable-coZK). Proving with a secret-shared witness.
+- **Maturity (from the lit-check, § below) — the critical finding:** collaborative
+  **SNARK** proving is **production-real** — TACEO's `co-snarks` runs in **World ID**
+  (~18M users, iris codes secret-shared + jointly proven) and Renegade's dark pool. Overhead
+  is **~1× solo on a fast LAN** (malicious-minority), ~2× for full malicious security. **BUT
+  it is all pairing/Plonk-family (Groth16/Plonk/Marlin/HyperPlonk). Collaborative
+  STARK/FRI proving DOES NOT EXIST** — FRI's hashing is non-arithmetic and brutal inside
+  MPC, so no one has built a collaborative RISC0/zkVM prover, prototype or otherwise.
+- **Consequence:** Family C is viable **only if the oracle's proof is a Plonk-family SNARK**
+  (not RISC0/STARK). Two sub-options: **(C1)** the per-turn oracle uses collaborative
+  *SNARK* proving (TACEO stack) while RISC0/STARK stays for solo-proved, node-verified parts;
+  **(C2)** SNARK-wrap the RISC0 STARK and prove the wrapper collaboratively — *itself
+  unproven*. **Betting C on collaborative STARK is a no-go.**
 
 ### D — TEE / enclave (pragmatic bridge, off-thesis)
 `s` lives inside an SGX/TDX/Nitro enclave that generates it, answers each turn, and attests it
@@ -113,8 +122,17 @@ the pot settles. Belt-and-suspenders, not the oracle.
 
 ## 3. Recommended v2 architecture
 
-**Collaborative proving over a secret-shared `s` (Family C), committee = LEZ sequencer set,
-with a VDF anti-grief escrow (E).**
+> **Revised after the lit-check.** Original instinct was Family C over our RISC0/STARK stack.
+> The lit-check kills that specific bet (no collaborative STARK exists) but *strengthens* the
+> family: collaborative **SNARK** proving is production-real. So the recommendation becomes
+> **C1** — Family C with a **Plonk-family SNARK oracle** (TACEO `co-snarks`), not RISC0/STARK.
+> If a pure-STARK stack is a hard constraint, **fall back to threshold-FHE (B)**.
+
+**Collaborative *SNARK* proving over a secret-shared `s` (Family C1), committee = LEZ
+sequencer set, with a VDF anti-grief escrow (E).** The per-turn oracle is a small
+Plonk/Groth16 circuit (`open([s])⊕C`, `b = sign(g−s)`, commit `(C,g,b)`) proved
+collaboratively by the committee — production-grade tech (World ID / Renegade) — while
+RISC0/STARK stays for the solo-proved, node-verified surfaces we already built.
 
 ```
 Setup    players scribble → commit-reveal → MPC folds contributions into [s] (shares)
@@ -147,7 +165,7 @@ are public; a staked race with guesses private *between players* is the differen
 
 | Risk | Severity | Note |
 |---|---|---|
-| Collaborative STARK proving may not compose with RISC0 | **high** | may force a different proof system for the oracle; RISC0 stays fine for the public *verify* |
+| ~~Collaborative STARK proving may not compose with RISC0~~ → **CONFIRMED: collaborative STARK doesn't exist** | **resolved → steer** | lit-check: coSNARK proving is production-real but **SNARK-only**; FRI is MPC-hostile. → oracle must be a Plonk-family SNARK (C1), or fall back to threshold-FHE (B). RISC0/STARK stays fine for solo-proved, node-verified parts. |
 | Committee liveness (must be online each turn) | med | turns are human-slow; VDF escrow covers total stall |
 | Committee threshold-collusion recovers `s` | med | standard threshold assumption; size/stake the set accordingly |
 | Verifiable-MPC / verifiable-FHE overhead (families A/B) | med | the honesty bolt-on is the cost driver, not the comparison |
@@ -178,6 +196,63 @@ Family C:
   under *every* family and needs no committee).
 
 Deliverable of the spike: a feasibility note appended here + a go/no-go on C-vs-B for v2.
+
+### Spike result — custody+compare (issue #8, `experiments/v2-spike/`)
+
+**Ran the custody+compare half first** (the part I'd called mature) to nail the foundation
+before betting on collaborative proving. Runnable Python, semi-honest 2PC, 20-bit `s`:
+
+- **Correctness:** 5000/5000 verdicts (ABOVE/BELOW/EQUAL) match ground truth. ✓
+- **Custody:** for a fixed secret over 4000 turns, P1's private share-bits are `P(1)=0.498`
+  and every value opened on the wire is `P(1)=0.489` — statistically independent of `s`
+  (one-time-pad shares + Beaver masking). `s` reconstructed **0** times. ✓
+
+So the **custody + secure-comparison mechanic is de-risked in runnable code**: two parties
+compute `sign(g−s)` with neither ever holding `s`.
+
+**What the spike deliberately does NOT cover — and why it's the real crux:** it gives an
+*answer*, not a *proof of honest execution*. A **malicious** party could deviate and the
+others couldn't catch it. Closing that gap = **collaborative proving** (Family C) or
+threshold-FHE-with-a-proof (Family B). That is still the go/no-go, now sharpened:
+
+> the open bet is not "can shares compare?" (yes) — it's "can you bolt **verifiable
+> honesty** onto the shared comparison *collaboratively*, cheaply enough?"
+
+Next: the maturity lit-check on collaborative STARK/zkVM proving → decides C vs B.
+
+### Lit-check result — collaborative proving maturity (the deciding input)
+
+**Verdict: collaborative *SNARK* proving is production-real; collaborative *STARK* proving
+does not exist.**
+
+- **Foundation:** Ozdemir & Boneh, *Experimenting with Collaborative zk-SNARKs*, USENIX
+  Security '22 ([usenix](https://www.usenix.org/conference/usenixsecurity22/presentation/ozdemir),
+  [eprint 2021/1530](https://eprint.iacr.org/2021/1530)) — lifts a solo SNARK prover to N
+  provers over a **secret-shared witness**; verifier checks the *same* single proof. Covered
+  Groth16 / Marlin / Plonk / Fractal. **Overhead ~1× solo on a 3 Gbit/s LAN** (malicious
+  minority), **~2×** for full malicious security; degrades on WAN.
+- **Production:** TACEO `co-snarks` ([github](https://github.com/TaceoLabs/co-snarks)) — in
+  **World ID** (~18M users; iris codes secret-shared + jointly proven,
+  [TACEO](https://core.taceo.io/articles/taceo-proof-prod/)); **Renegade** dark pool on
+  Starknet ([docs](https://docs.renegade.fi/core-concepts/mpc-zkp)). Both **SNARK** (Plonk/
+  Groth16 family). Library self-labeled experimental/un-audited.
+- **STARK is the gap:** every construction is pairing/sumcheck-SNARK. **No collaborative
+  RISC0/zkVM/FRI prover exists** — FRI's Merkle/hashing steps are non-arithmetic, so the
+  "MPC cheaply emulates the algebraic prover" trick doesn't carry to STARKs. Nearest FRI-
+  adjacent work — *How to Prove Statements Obliviously*, CRYPTO '24
+  ([Springer](https://link.springer.com/chapter/10.1007/978-3-031-68403-6_14)) — is
+  *single-server blind* proving, a different trust model closer to the FHE fallback.
+- **Scalability frontier (if we pursue C1):** scalable/sublinear coSNARKs
+  ([eprint 2024/143](https://eprint.iacr.org/2024/143),
+  [2025/1388](https://eprint.iacr.org/2025/1388.pdf)); a caution that some earlier
+  malicious-security claims were subtler than stated
+  ([eprint 2025/1026](https://eprint.iacr.org/2025/1026)) — read the security proofs before
+  relying on them.
+
+**Go/no-go:** **no-go** on betting v2 on collaborative *STARK* proving (would be original
+research on the RISC0/FRI seam). **Go** on **C1** — a Plonk-family SNARK oracle via the TACEO
+stack (production-proven) — **or** fall back to **B (threshold-FHE)** if a pure-STARK stack is
+mandatory. Either way the custody+compare foundation (§ spike) is settled.
 
 ---
 
