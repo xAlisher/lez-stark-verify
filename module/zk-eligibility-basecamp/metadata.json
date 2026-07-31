@@ -6,7 +6,7 @@
   "category": "zk",
   "description": "Verify a RISC0 STARK proof of private eligibility on the Logos Execution Zone",
   "main": "zk_eligibility_ui_plugin",
-  "icon": "",
+  "icon": "src/icons/zk.png",
   "view": "qml/ZkVerifyView.qml",
   "dependencies": [],
   "nix": {
