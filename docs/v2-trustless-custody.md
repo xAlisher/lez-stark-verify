@@ -120,19 +120,41 @@ the pot settles. Belt-and-suspenders, not the oracle.
 
 ---
 
-## 3. Recommended v2 architecture
+## 3. Recommended architecture
 
-> **Revised after the lit-check.** Original instinct was Family C over our RISC0/STARK stack.
-> The lit-check kills that specific bet (no collaborative STARK exists) but *strengthens* the
-> family: collaborative **SNARK** proving is production-real. So the recommendation becomes
-> **C1** — Family C with a **Plonk-family SNARK oracle** (TACEO `co-snarks`), not RISC0/STARK.
-> If a pure-STARK stack is a hard constraint, **fall back to threshold-FHE (B)**.
+> **STARK is a hard requirement of the deliverable** (Franck's ask: "sample app to show zk
+> proof verification on LEZ, ideally STARK"). That constraint drives the whole recommendation
+> and — helpfully — *resolves* the C-vs-B fork. STARK lives on three surfaces; only one is
+> touched by the lit-check:
+>
+> | Surface | STARK? | Touched by "no collaborative STARK"? |
+> |---|---|---|
+> | LEZ **verification** (receipt vs image id) | ✓ | no — this is the demo |
+> | Per-turn **proving, v1** (single host → RISC0 receipt) | ✓ | no — solo proving works today |
+> | Per-turn proving **only if the witness is secret-shared** | — | yes — the one corner that doesn't exist |
 
-**Collaborative *SNARK* proving over a secret-shared `s` (Family C1), committee = LEZ
-sequencer set, with a VDF anti-grief escrow (E).** The per-turn oracle is a small
-Plonk/Groth16 circuit (`open([s])⊕C`, `b = sign(g−s)`, commit `(C,g,b)`) proved
-collaboratively by the committee — production-grade tech (World ID / Renegade) — while
-RISC0/STARK stays for the solo-proved, node-verified surfaces we already built.
+**The sample app is v1 — pure STARK, end to end** (host holds `s`, generates a RISC0 STARK
+each turn, the LEZ node verifies it). Already built + proven 4×. This is the deliverable; the
+collaborative-proving finding does **not** touch it.
+
+**v2 "no house" — the STARK-preserving path is Family B, not C1:**
+
+> **Threshold-FHE custody + solo STARK proof + threshold 1-bit decrypt.**
+> `s` lives as `Enc(s)` under a committee key. Each turn, *any* prover homomorphically
+> computes `Enc(sign(g−s))` **on public ciphertext** (so its witness isn't secret) and
+> **STARK-proves the FHE compare** (`open-check` of `C`, the homomorphic eval, commit `(C,g,·)`).
+> The committee **threshold-decrypts just the 1 output bit**. Add the VDF escrow (E) for
+> anti-grief.
+>
+> Because the witness is public ciphertext, there is **no shared witness → no collaborative
+> proving → solo STARK is fine.** The only multi-party step is a 1-bit threshold decrypt (a
+> signature-like op, *not* a proof). **STARK preserved.**
+
+**Why B over C1 here:** C1 (collaborative SNARK over a secret-shared witness) is production-real
+but **trades the STARK away** — it swaps the proof system to Plonk/Groth16. Given the STARK
+requirement, C1 is deprioritized. B keeps solo STARK proving; its cost is real (proving an FHE
+evaluation inside a STARK is heavy) but it is *standard-shaped solo proving that exists*, not
+the collaborative kind that doesn't. Committee = LEZ sequencer set for the threshold key.
 
 ```
 Setup    players scribble → commit-reveal → MPC folds contributions into [s] (shares)
@@ -165,7 +187,7 @@ are public; a staked race with guesses private *between players* is the differen
 
 | Risk | Severity | Note |
 |---|---|---|
-| ~~Collaborative STARK proving may not compose with RISC0~~ → **CONFIRMED: collaborative STARK doesn't exist** | **resolved → steer** | lit-check: coSNARK proving is production-real but **SNARK-only**; FRI is MPC-hostile. → oracle must be a Plonk-family SNARK (C1), or fall back to threshold-FHE (B). RISC0/STARK stays fine for solo-proved, node-verified parts. |
+| ~~Collaborative STARK proving may not compose with RISC0~~ → **CONFIRMED: collaborative STARK doesn't exist** | **resolved → steer** | lit-check: coSNARK proving is production-real but **SNARK-only**; FRI is MPC-hostile. **But the sample app never needed it** — it's solo-proved STARK (v1). Only the secret-*shared*-witness flavor of v2 hits this wall, and we avoid that flavor: **Family B keeps solo STARK proving** (compute on public ciphertext). C1 would trade STARK away → deprioritized. |
 | Committee liveness (must be online each turn) | med | turns are human-slow; VDF escrow covers total stall |
 | Committee threshold-collusion recovers `s` | med | standard threshold assumption; size/stake the set accordingly |
 | Verifiable-MPC / verifiable-FHE overhead (families A/B) | med | the honesty bolt-on is the cost driver, not the comparison |
@@ -249,10 +271,12 @@ does not exist.**
   ([eprint 2025/1026](https://eprint.iacr.org/2025/1026)) — read the security proofs before
   relying on them.
 
-**Go/no-go:** **no-go** on betting v2 on collaborative *STARK* proving (would be original
-research on the RISC0/FRI seam). **Go** on **C1** — a Plonk-family SNARK oracle via the TACEO
-stack (production-proven) — **or** fall back to **B (threshold-FHE)** if a pure-STARK stack is
-mandatory. Either way the custody+compare foundation (§ spike) is settled.
+**Go/no-go (given the STARK requirement):** the **sample app stays STARK** — it's v1 (solo
+RISC0 proving + LEZ verify), untouched by this finding. For v2 "no house", **choose B
+(threshold-FHE): it preserves solo STARK proving** because the homomorphic compute runs on
+*public* ciphertext (no shared witness). **C1** (collaborative SNARK) is production-proven but
+**trades STARK away**, so it's deprioritized under this constraint. **No-go** on collaborative
+STARK (nonexistent). Either way the custody+compare foundation (§ spike) is settled.
 
 ---
 
