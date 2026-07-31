@@ -4,3 +4,5 @@ experiments/**/*.receipt
 result
 result-*
 .DS_Store
+module/**/target/
+**/target/
