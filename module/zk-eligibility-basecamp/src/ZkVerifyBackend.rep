@@ -1,0 +1,9 @@
+class ZkVerifyBackend
+{
+    PROP(QString lastJson READONLY)
+
+    // name: "valid" | "tampered" (bundled fixtures), or an absolute receipt path.
+    // Runs the bundled `zk-verify` tool and reports the result.
+    SLOT(void verifyReceipt(QString name))
+    SIGNAL(verifyResult(bool valid, int threshold, bool eligible, QString error))
+}
