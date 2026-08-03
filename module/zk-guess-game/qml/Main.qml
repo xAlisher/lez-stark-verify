@@ -451,8 +451,10 @@ Rectangle {
                         }
                         Text {
                             Layout.alignment: Qt.AlignHCenter
-                            text: "~" + root.clockFmt(root.settleEtaMs - (root.nowMs - (backend ? backend.settleStartMs : 0))) + " left"
-                            color: root.fg; font.family: root.mono; font.pixelSize: 20; font.bold: true
+                            property real remaining: root.settleEtaMs - (root.nowMs - (backend ? backend.settleStartMs : 0))
+                            text: remaining > 0 ? "~" + root.clockFmt(remaining) + " left" : "taking a bit longer than usual…"
+                            color: remaining > 0 ? root.fg : root.amber
+                            font.family: root.mono; font.pixelSize: remaining > 0 ? 20 : 14; font.bold: true
                         }
                         Rectangle {   // progress bar (elapsed / ETA)
                             Layout.fillWidth: true; height: 5; radius: 2.5; color: "#1c2622"
@@ -467,12 +469,21 @@ Rectangle {
                                Layout.alignment: Qt.AlignHCenter }
                     }
 
-                    // settled ✓
-                    Text {
+                    // settled ✓ — with the on-zone tx hash as proof (selectable to copy)
+                    ColumnLayout {
                         visible: backend && backend.settleBlock >= 0
-                        text: "✓ settled on LEZ — block " + (backend ? backend.settleBlock : "")
-                        color: root.teal; font.family: root.mono; font.pixelSize: 14; font.bold: true
-                        Layout.alignment: Qt.AlignHCenter
+                        Layout.fillWidth: true; spacing: 3
+                        Text { text: "✓ settled on LEZ — block " + (backend ? backend.settleBlock : "")
+                               color: root.teal; font.family: root.mono; font.pixelSize: 14; font.bold: true
+                               Layout.alignment: Qt.AlignHCenter }
+                        Text { visible: backend && backend.settleTx !== ""
+                               text: "proof — on-zone tx (select to copy)"; color: root.dim
+                               font.family: root.mono; font.pixelSize: 10; Layout.alignment: Qt.AlignHCenter }
+                        TextEdit { visible: backend && backend.settleTx !== ""
+                               text: backend ? backend.settleTx : ""
+                               readOnly: true; selectByMouse: true; wrapMode: TextEdit.WrapAnywhere
+                               color: root.teal; font.family: root.mono; font.pixelSize: 10
+                               Layout.fillWidth: true; horizontalAlignment: TextEdit.AlignHCenter }
                     }
                     // error
                     Text {

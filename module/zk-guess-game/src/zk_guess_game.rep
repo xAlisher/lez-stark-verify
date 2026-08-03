@@ -28,6 +28,7 @@ class ZkGuessGame
     PROP(bool    settling=false READONLY)             // win being settled on-zone (real STARK ~16min) → countdown
     PROP(double  settleStartMs=0 READONLY)            // when settlement proving began (countdown anchor)
     PROP(int     settleBlock=-1 READONLY)             // block the settlement landed in (done)
+    PROP(QString settleTx="" READONLY)                // the on-zone tx hash (the settlement proof)
     PROP(QString settleError="" READONLY)             // settlement failure, if any
     PROP(QString lastError="" READONLY)
 

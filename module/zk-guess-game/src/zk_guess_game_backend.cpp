@@ -544,10 +544,13 @@ QString ZkGuessGameBackend::settleOnLez()
         const QString out = QString::fromUtf8(p->readAll());
         p->deleteLater();
         setSettling(false);
-        QRegularExpression re(QStringLiteral("block\\s+(\\d+)"));   // last "block N" = the inclusion block
-        int blk = -1; auto it = re.globalMatch(out);
-        while (it.hasNext()) blk = it.next().captured(1).toInt();
-        if (code == 0 && blk >= 0) setSettleBlock(blk);
+        QRegularExpression reBlk(QStringLiteral("block\\s+(\\d+)"));       // last "block N" = inclusion block
+        int blk = -1; auto itB = reBlk.globalMatch(out);
+        while (itB.hasNext()) blk = itB.next().captured(1).toInt();
+        QRegularExpression reTx(QStringLiteral("tx\\s+([0-9a-fA-F]{32,})")); // last "tx <hash>" = the settle tx
+        QString tx; auto itT = reTx.globalMatch(out);
+        while (itT.hasNext()) tx = itT.next().captured(1);
+        if (code == 0 && blk >= 0) { setSettleBlock(blk); setSettleTx(tx); }   // tx = the on-zone proof
         else setSettleError(code == 0 ? QStringLiteral("settled but no block parsed")
                                       : QStringLiteral("settlement failed (exit %1)").arg(code));
     });
@@ -569,7 +572,7 @@ QString ZkGuessGameBackend::leaveRoom()
     setCollectingEntropy(false); setEntropySubmitted(false); setStarted(false);
     setWon(false); setWinnerName(QString()); setSecretRevealed(-1);
     setProvingName(QString()); setProvingGuess(-1);
-    setSettling(false); setSettleStartMs(0); setSettleBlock(-1); setSettleError(QString());
+    setSettling(false); setSettleStartMs(0); setSettleBlock(-1); setSettleTx(QString()); setSettleError(QString());
     setSealedCommitment(QString()); setCurrentTurnId(QString()); setCurrentTurnName(QString());
     setRoomCode(QString()); setRoomName(QString());
     setRosterJson("[]"); setChatJson("[]"); setTurnsJson("[]");
