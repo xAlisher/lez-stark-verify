@@ -1,9 +1,26 @@
-# Deploy plan — our own public LEZ sequencer at `sequencer.logos.live`
+# Deploy — our own public LEZ sequencer at `sequencer.logos.live`
 
-_Goal: stand up a version-matched (rev `787a15aa`) public LEZ sequencer we control, so on-zone
+> **STATUS: DEPLOYED & LIVE (real mode).** `https://sequencer.logos.live` is up on the Hetzner VPS
+> (`116.202.19.154`), built from **`logos-blockchain/logos-execution-zone`** @ rev `787a15aa`,
+> standalone, `RISC0_DEV_MODE` unset → **real STARK verification**. Runs in the `logos-storage`
+> docker compose (network `logos-storage_default`), Caddy fronts it with TLS + an HTTP **Basic-auth**
+> gate (creds VPS-only, `/root/logos-storage/sequencer_basic_auth.txt`, not in git). 3040 is not
+> host-exposed (docker-net only), ufw active, `msg.logos.live` untouched. Cert auto-renews via the
+> existing certbot loop. Verified: no-auth → 403, authed → 200 (`checkHealth`), minting blocks.
+>
+> **Wallet wiring:** `NSSA_SEQUENCER_URL=https://sequencer.logos.live` + `basic_auth`. Caddy matches a
+> literal `Basic <base64(user:pass)>` header; the wallet sends `Basic {Display(BasicAuth)}` which is
+> `username:password` **un-re-encoded**, so put the pre-computed base64 blob in `BasicAuth.username`
+> with `password: None` → the emitted header is exactly `Basic <base64>` and matches. (See
+> `zk-guess-methods/e2e_submit.rs`, env `SEQ_BASIC_AUTH`.)
+>
+> NB: the public repo is **`logos-blockchain/logos-execution-zone`** (the `logos-co/...` path in the
+> first draft below did not exist — corrected here).
+
+_Original goal: stand up a version-matched (rev `787a15aa`) public LEZ sequencer we control, so on-zone
 settlement (win + pot) works from a catalog install without the `MethodNotFound` version wall we hit
 on `testnet.lez.logos.co`. Grounded in the in-tree sequencer service + our existing `*.logos.live`
-infra._
+infra. The plan below is what was executed._
 
 ## Key finding — the cost is on the client, not the sequencer
 Proving (the ~16 min / ~9.6 GB peak) happens **in the wallet/client** that submits the tx
