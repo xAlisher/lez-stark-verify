@@ -58,6 +58,9 @@ VDIR="$WORK/$VARIANT"
 [ -d "$VDIR" ] || { echo "no $VARIANT variant in $IN" >&2; exit 1; }
 install -Dm755 "$ZKV" "$VDIR/zk-verify"
 install -Dm755 "$R0V" "$VDIR/r0vm"
+# on-zone win settlement binary (optional): bundle if present beside the prover bins.
+[ -x "$PROVER_DIR/settle-win" ] && install -Dm755 "$PROVER_DIR/settle-win" "$VDIR/settle-win" \
+  && echo "  + bundled settle-win (on-zone settlement)"
 "$LGX_BIN" add "$OUT" --variant "$VARIANT" --files "$VDIR" \
   --main zk_guess_game_plugin.so --view qml/Main.qml --yes >/dev/null
 

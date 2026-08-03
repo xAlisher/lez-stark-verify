@@ -37,8 +37,8 @@ Rectangle {
     property int  spinIdx: 0
     property real nowMs: 0
     readonly property bool proving: backend && backend.provingName !== ""       // per-turn STARK (fast)
-    readonly property bool settling: backend && backend.settling                // on-zone win (real ~16min)
-    readonly property int  settleEtaMs: 16 * 60 * 1000                           // ~16 min real proof
+    readonly property bool settling: backend && backend.settling                // on-zone win (real, ~30 min = 2 proofs)
+    readonly property int  settleEtaMs: 32 * 60 * 1000                           // ~32 min: TWO STARK proofs (init_game + winning guess), back-to-back, capped to half cores
     function clockFmt(ms) { if (ms < 0) ms = 0; var s = Math.floor(ms/1000)
         return ("0"+Math.floor(s/60)).slice(-2) + ":" + ("0"+(s%60)).slice(-2) }
     // one ticker drives both spinners; runs only while something is proving.
@@ -448,6 +448,18 @@ Rectangle {
                                    font.family: root.mono; font.pixelSize: 16; font.bold: true }
                             Text { text: "settling on LEZ — proving the win"; color: root.amber
                                    font.family: root.mono; font.pixelSize: 13 }
+                        }
+                        Text {   // what's happening under the hood — the ~30 min isn't a hang, it's the math
+                            Layout.alignment: Qt.AlignHCenter
+                            Layout.maximumWidth: 380
+                            horizontalAlignment: Text.AlignHCenter
+                            wrapMode: Text.WordWrap
+                            text: "under the hood: two real STARK proofs on the LEZ, back-to-back — "
+                                + "① seal the number on-zone (init_game), then ② prove the winning guess. "
+                                + "The sequencer re-runs each proof before the block lands, so nothing is trusted — "
+                                + "the chain checks the math. The prover is capped to half your cores so the machine stays usable, "
+                                + "which is why it's minutes, not seconds."
+                            color: root.dim; font.family: root.mono; font.pixelSize: 10; lineHeight: 1.25
                         }
                         Text {
                             Layout.alignment: Qt.AlignHCenter
