@@ -10,6 +10,10 @@
 #include <QDateTime>
 #include <QByteArray>
 #include <QCryptographicHash>
+#include <QProcess>
+#include <QProcessEnvironment>
+#include <QDir>
+#include <QFile>
 
 namespace {
 constexpr int HEARTBEAT_MS = 15000;
@@ -208,24 +212,13 @@ void ZkGuessGameBackend::ingest(const QVariant& payload)
         setStarted(true);
         log(QStringLiteral("host sealed a number — start guessing"));
     } else if (t == QLatin1String("guess")) {
-        if (isCreator()) {   // only the host holds the secret → only the host answers
-            const int g = o.value("guess").toInt();
-            const QString name = o.value("name").toString();
-            const int dir = (quint64(g) < m_secret) ? 0 : (quint64(g) == m_secret ? 1 : 2);
-            QJsonObject v{{"t","verdict"},{"id",m_myId},{"guess",g},{"dir",dir},{"name",name}};
-            if (dir == 1) {   // exact — reveal so everyone can verify the seal
-                v.insert("winner", name);
-                v.insert("secret", int(m_secret));
-                v.insert("blind",  int(m_blind));
-            }
-            sendEnvelope(v);
-            addTurn(g, dir, name);                 // host records locally (won't get its own echo)
-            if (dir == 1) { setWon(true); setWinnerName(name); setSecretRevealed(int(m_secret)); }
+        if (isCreator()) {   // only the host holds the secret → it proves the turn on zk-verify
+            proveGuess(o.value("guess").toInt(), o.value("name").toString());
         }
     } else if (t == QLatin1String("verdict")) {
         const int g = o.value("guess").toInt();
         const int dir = o.value("dir").toInt();
-        addTurn(g, dir, o.value("name").toString());
+        addTurn(g, dir, o.value("name").toString(), o.value("proven").toBool());
         if (dir == 1) {
             const quint64 s = quint64(o.value("secret").toInt());
             const quint64 b = quint64(o.value("blind").toInt());
@@ -306,10 +299,69 @@ QString ZkGuessGameBackend::submitGuess(int guess)
     return QString();
 }
 
-void ZkGuessGameBackend::addTurn(int guess, int dir, const QString& byName)
+void ZkGuessGameBackend::addTurn(int guess, int dir, const QString& byName, bool proven)
 {
-    m_turns.append(QJsonObject{{"name",byName},{"guess",guess},{"dir",dir}});
+    m_turns.append(QJsonObject{{"name",byName},{"guess",guess},{"dir",dir},{"proven",proven}});
     setTurnsJson(QString::fromUtf8(QJsonDocument(m_turns).toJson(QJsonDocument::Compact)));
+}
+
+QString ZkGuessGameBackend::zkVerifyBin() const
+{
+    const QString env = qEnvironmentVariable("ZK_VERIFY_BIN");
+    if (!env.isEmpty() && QFileInfo::exists(env)) return env;
+    return QDir::homePath() + QStringLiteral("/.local/share/zk-guess/zk-verify");
+}
+
+void ZkGuessGameBackend::broadcastVerdict(int guess, const QString& byName, int dir, bool proven)
+{
+    QJsonObject v{{"t","verdict"},{"id",m_myId},{"guess",guess},{"dir",dir},{"name",byName},{"proven",proven}};
+    if (dir == 1) { v.insert("winner", byName); v.insert("secret", int(m_secret)); v.insert("blind", int(m_blind)); }
+    sendEnvelope(v);
+    addTurn(guess, dir, byName, proven);          // host records locally (no self-echo)
+    if (dir == 1) { setWon(true); setWinnerName(byName); setSecretRevealed(int(m_secret)); }
+}
+
+// Host proves a turn on the real zk-verify STARK engine, then broadcasts the verdict.
+// Async QProcess chain (prove-turn → verify) so the ui-host never blocks. Dev-mode for snappy play.
+void ZkGuessGameBackend::proveGuess(int guess, const QString& byName)
+{
+    const QString bin = zkVerifyBin();
+    if (!QFileInfo::exists(bin)) {   // no prover available → honest fallback: compute + mark unproven
+        const int dir = (quint64(guess) < m_secret) ? 0 : (quint64(guess) == m_secret ? 1 : 2);
+        broadcastVerdict(guess, byName, dir, false);
+        return;
+    }
+    const QString out = QDir::tempPath() + QStringLiteral("/zkg-%1.receipt").arg(nowMs());
+    QProcessEnvironment penv = QProcessEnvironment::systemEnvironment();
+    penv.insert(QStringLiteral("RISC0_DEV_MODE"), QStringLiteral("1"));
+
+    auto* prove = new QProcess(this);
+    prove->setProcessEnvironment(penv);
+    connect(prove, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
+            [this, prove, guess, byName, out, bin, penv](int code, QProcess::ExitStatus) {
+        prove->deleteLater();
+        if (code != 0) {   // prove failed (e.g. real-mode assert) → fallback
+            const int dir = (quint64(guess) < m_secret) ? 0 : (quint64(guess) == m_secret ? 1 : 2);
+            broadcastVerdict(guess, byName, dir, false);
+            return;
+        }
+        auto* ver = new QProcess(this);
+        ver->setProcessEnvironment(penv);
+        connect(ver, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
+                [this, ver, guess, byName, out](int, QProcess::ExitStatus) {
+            const QByteArray o = ver->readAllStandardOutput();
+            ver->deleteLater();
+            QFile::remove(out);
+            const QJsonObject j = QJsonDocument::fromJson(o).object();
+            const bool valid = j.value(QStringLiteral("valid")).toBool();
+            const int  dir   = j.value(QStringLiteral("dir")).toInt(-1);
+            if (dir >= 0) broadcastVerdict(guess, byName, dir, valid);
+        });
+        ver->start(bin, {QStringLiteral("verify"), out});
+    });
+    prove->start(bin, {QStringLiteral("prove-turn"),
+                       QString::number(m_secret), QString::number(m_blind),
+                       QString::number(guess), out});
 }
 
 QString ZkGuessGameBackend::leaveRoom()

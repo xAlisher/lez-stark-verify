@@ -171,7 +171,8 @@ Rectangle {
                     delegate: Text {
                         width: feed.width; wrapMode: Text.WordWrap; font.family: root.mono; font.pixelSize: 13
                         text: (modelData.dir !== undefined)
-                              ? ("✓ " + (modelData.name || "?") + " · " + modelData.guess + " · " + root.dirName(modelData.dir))
+                              ? ((modelData.name || "?") + " · " + modelData.guess + " · " + root.dirName(modelData.dir)
+                                 + (modelData.proven ? " · verified on LEZ ✓" : " · (unverified)"))
                               : ((modelData.name || "?") + "  " + (modelData.text || ""))
                         color: modelData.dir === 1 ? "#7ef0c4" : (modelData.dir !== undefined ? root.teal : root.fg)
                     }

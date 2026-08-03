@@ -45,7 +45,10 @@ private:
     void pruneRoster();
     void log(const QString& line);
 
-    void addTurn(int guess, int dir, const QString& byName);   // append + narrow range + win
+    void addTurn(int guess, int dir, const QString& byName, bool proven);   // append + narrow range + win
+    void proveGuess(int guess, const QString& byName);         // host: zk-verify prove-turn → verify → broadcast
+    void broadcastVerdict(int guess, const QString& byName, int dir, bool proven);
+    QString zkVerifyBin() const;
 
     struct Player { QString name; QString role; qint64 lastSeenMs = 0; };
     QHash<QString, Player> m_players;   // keyed by player id
