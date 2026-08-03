@@ -73,4 +73,47 @@ mod zk_guess {
             .map_err(|_| SpelError::custom(5, "turn log exceeds data limit"))?;
         Ok(SpelOutput::execute(vec![game], vec![]))
     }
+
+    /// Stake: move `amount` from a player into the program-custodied pot account.
+    /// (Same balance-move primitive as referral emit_credit.) Trustless: the pot
+    /// balance can only leave via `settle`.
+    #[instruction]
+    pub fn stake(
+        #[account(mut, signer)] player: AccountWithMetadata,
+        #[account(mut)] pot: AccountWithMetadata,
+        amount: u128,
+    ) -> SpelResult {
+        let mut player = player;
+        let mut pot = pot;
+        player.account.balance = player
+            .account
+            .balance
+            .checked_sub(amount)
+            .ok_or_else(|| SpelError::custom(6, "insufficient balance to stake"))?;
+        pot.account.balance = pot
+            .account
+            .balance
+            .checked_add(amount)
+            .ok_or_else(|| SpelError::custom(7, "pot overflow"))?;
+        Ok(SpelOutput::execute(vec![player, pot], vec![]))
+    }
+
+    /// Settle: pay the whole pot to the winner. (First cut: called on a verified
+    /// win; binding settle to the winning-guess proof is a follow-on.)
+    #[instruction]
+    pub fn settle(
+        #[account(mut)] pot: AccountWithMetadata,
+        #[account(mut, signer)] winner: AccountWithMetadata,
+    ) -> SpelResult {
+        let mut pot = pot;
+        let mut winner = winner;
+        let prize = pot.account.balance;
+        pot.account.balance = 0;
+        winner.account.balance = winner
+            .account
+            .balance
+            .checked_add(prize)
+            .ok_or_else(|| SpelError::custom(8, "winner balance overflow"))?;
+        Ok(SpelOutput::execute(vec![pot, winner], vec![]))
+    }
 }
