@@ -12,6 +12,7 @@
 #include <QCryptographicHash>
 #include <QProcess>
 #include <QProcessEnvironment>
+#include <QThread>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -526,6 +527,15 @@ QString ZkGuessGameBackend::settleOnLez()
     if (!penv.contains(QStringLiteral("NSSA_SEQUENCER_URL")))
         penv.insert(QStringLiteral("NSSA_SEQUENCER_URL"), QStringLiteral("https://sequencer.logos.live"));
 
+    // Cap the prover — ZK proving is embarrassingly parallel and will grab EVERY core (r0vm hit
+    // ~1400% CPU / load 18). RAYON_NUM_THREADS bounds r0vm's rayon pool; default to HALF the cores so
+    // the machine stays responsive during the ~16 min proof. Override with SETTLE_THREADS (RAM peak is
+    // inherent ~9.6 GB and driven by segment size, not thread count — fewer threads mainly tames CPU).
+    const int cores = qMax(1, QThread::idealThreadCount());
+    QString threads = qEnvironmentVariable("SETTLE_THREADS");
+    if (threads.isEmpty()) threads = QString::number(qMax(2, cores / 2));
+    penv.insert(QStringLiteral("RAYON_NUM_THREADS"), threads);
+
     auto* p = new QProcess(this);
     p->setProcessEnvironment(penv);
     p->setProcessChannelMode(QProcess::MergedChannels);
@@ -541,7 +551,8 @@ QString ZkGuessGameBackend::settleOnLez()
         else setSettleError(code == 0 ? QStringLiteral("settled but no block parsed")
                                       : QStringLiteral("settlement failed (exit %1)").arg(code));
     });
-    p->start(bin, {});
+    // run at lower priority (nice) so the capped prover threads yield to interactive work
+    p->start(QStringLiteral("nice"), {QStringLiteral("-n"), QStringLiteral("15"), bin});
     return QString();
 }
 
