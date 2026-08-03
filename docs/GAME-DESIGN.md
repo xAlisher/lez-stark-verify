@@ -62,6 +62,62 @@ sequencer** independently.
   documented refinement (today: everyone contributes, host folds).
 - **MLS-group rooms** — richer membership/E2E chat, pending a Basecamp delivery-module bump (issue #25).
 
+## The STARK engine (full detail)
+- **Guest** (`module/zk-guess/methods/guest/src/main.rs`, RISC0 zkVM): reads **private** `(secret,
+  blind)` + **public** `(guess, commitment)`; asserts `SHA256(secret‖blind) == commitment`
+  (a swapped number halts the guest → **unprovable**); commits `(commitment, guess, dir)` where
+  `dir ∈ {0 below, 1 equal, 2 above}`. The secret **never enters the journal**. Proven 4 ways
+  (verify OK · secret-absent · tampered-rejected · swapped-unprovable) — `docs/reports/mvp-headless-report.md`.
+- **CLI** (`module/zk-guess/host/src/bin/zk-verify.rs`): `prove-turn <secret> <blind> <guess> [out]`
+  → a receipt; `verify <receipt>` → JSON `{valid, commitment, guess, dir}` (pure — no prover, ~ms).
+  `RISC0_DEV_MODE=1` = fast dev receipts (integration); unset = real cryptographic STARKs (~8 s/turn).
+
+## The LEZ program & sequencer (full detail)
+_This is the on-zone core (EPIC F). Proven on Sneg; **not yet wired into the room game** (see next)._
+- **Program** (`module/zk-guess-lez/zk-guess-program/src/lib.rs`, a `spel_framework` `#[lez_program]`
+  mirroring the referral `emit_credit`): `init_game(commitment)` seals `C` into a program account;
+  `guess(guess, secret, blind)` = **privacy-preserving** — private `(secret, blind)` witnesses,
+  asserts `SHA256(secret‖blind)==C`, computes dir, appends `(guess, dir)`. Built with
+  `nssa_core`/`spel-framework` @ LEZ rev `787a15aa`.
+- **Submission** (`.../zk-guess-methods/src/bin/e2e_submit.rs`): privacy-preserving txs carry the
+  program **inline** (`ProgramWithDependencies`) — no `deploy-program` step. `wallet.
+  send_privacy_preserving_tx(accounts, ix, &program)` → `poll_tx` → `sync_to_latest_block`. Inclusion
+  in a block = the **sequencer verified the STARK** (against `PRIVACY_PRESERVING_CIRCUIT_ID`).
+- **Sequencer we use:** the LEZ execution-zone **`sequencer_service`** (jsonrpsee, RPC **:3040**) —
+  NOT the `:8080` cryptarchia node inscribe path. Run standalone (mock bedrock) + `RISC0_DEV_MODE=1`:
+  `just run-sequencer standalone "" 3040`. **Deployed on Sneg** at `http://100.108.127.3:3040`
+  (Tailscale) / `192.168.1.36:3040` (LAN). **Gotcha:** the copied binary panics at genesis without
+  the RISC0 runtime → **copy `r0vm` to Sneg's PATH** (see memory `lez-sequencer-on-sneg`). Point the
+  wallet via `wallet_config.json` `sequencer_addr` or `NSSA_SEQUENCER_URL`.
+- **Proven on Sneg (dev-mode):** `init_game` block 99 · `GUESS(600000)=ABOVE` block 100 (verified on
+  LEZ) · wrong-secret rejected. Real STARKs = `RISC0_DEV_MODE` off on both prover + sequencer.
+
+## The trustless pot (full detail — EPIC D)
+- **Token:** native **TOK** on the LEZ; the **pinata faucet** grants 150 TOK instantly spendable
+  (`wallet pinata claim`), **no node** needed. Each player = one LEZ account (`wallet account new
+  public` + one `auth-transfer init`).
+- **Custody:** faucet TOK is auth-transfer-owned; a program can't move another program's balance
+  directly → a trustless pot must be a **vault-style PDA** (balance moves via `ChainedCall` to
+  auth-transfer). The LEZ **vault program already does this** → no new deploy. Proven on Sneg:
+  `vault transfer A→POT 50` (blk 242) · `B→POT 50` (blk 244) · `vault claim POT 100` (blk 246) →
+  winner=100. (`docs/epic-d-pot.md`.)
+
+## Deployment & requirements — "does it work from the catalog?"
+**Short answer: the GAME works out of the box; the per-turn STARK proof + on-LEZ + pot do NOT (yet).**
+
+| Feature | Works via catalog install? | Needs |
+|---|---|---|
+| Lobby, rooms **by code**, roster, chat, entropy, **turns**, guessing, **client-verified win** | ✅ **Yes — zero settings** | just the `delivery_module` dep (auto-bundled). Runs over the public logos.dev delivery network. No node, no sequencer, no config. |
+| **Per-turn `verified on LEZ ✓` STARK proof** | ❌ **No (falls back to native/unverified)** | the host runs `zk-verify prove-turn`, resolved via `ZK_VERIFY_BIN` or `~/.local/share/zk-guess/zk-verify` — **not bundled**. To ship: bundle `zk-verify` (~44 MB) **+ the RISC0 `r0vm` runtime** in the `.lgx`, or point at a hosted **prover service**. Without it, the game still plays; verdicts show `(unverified)`. |
+| **On-LEZ per-turn settlement** (sequencer) | ❌ not wired into the room yet | a reachable **`sequencer_service :3040`** endpoint (`NSSA_SEQUENCER_URL`). Today only my **private Sneg** box runs one — a **public/hosted LEZ testnet sequencer** is needed for catalog users. |
+| **TOK pot / staking** | ❌ not wired into the room yet | a LEZ wallet + faucet + a reachable sequencer (same endpoint question). |
+
+**So, honestly:** a catalog user gets a **fully playable, provably-fair-by-commitment, networked
+multiplayer game with zero configuration** — but the *per-turn STARK* and the *on-zone/pot* layers
+need (a) bundling the prover+runtime or a prover service, and (b) a **publicly hosted sequencer**
+(Sneg is private). Those are the deployment items to close before the "verified on LEZ" and the
+staked pot are real for anyone who installs it.
+
 ## Repo & build
 - This module: `module/zk-guess-game/` (universal ui_qml, module-builder master). Build:
   `nix build '.#lgx-portable'`. Install into Basecamp; needs the `delivery_module`.
