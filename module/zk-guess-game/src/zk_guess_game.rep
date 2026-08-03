@@ -12,8 +12,10 @@ class ZkGuessGame
     PROP(QString myId="" READONLY)                    // my ephemeral player id
     PROP(QString rosterJson="[]" READONLY)            // [{id,name,role,online}] TTL-pruned
     PROP(QString chatJson="[]" READONLY)              // [{id,name,text,ts}]
-    PROP(bool    started=false READONLY)              // game master pressed Start
-    PROP(QString sealedCommitment="" READONLY)        // C = SHA256(secret‖blind), broadcast at start
+    PROP(bool    collectingEntropy=false READONLY)    // entropy phase: everyone draws before the seal
+    PROP(bool    entropySubmitted=false READONLY)     // I've submitted my draw
+    PROP(bool    started=false READONLY)              // game in the guess phase
+    PROP(QString sealedCommitment="" READONLY)        // C = SHA256(secret‖blind), broadcast after entropy
     PROP(QString turnsJson="[]" READONLY)             // [{by,name,guess,dir,proven}]
     PROP(bool    won=false READONLY)
     PROP(QString winnerName="" READONLY)
@@ -25,7 +27,8 @@ class ZkGuessGame
     SLOT(QString createRoom(QString roomName, QString displayName))   // → generates the code, hosts
     SLOT(QString joinRoom(QString code, QString displayName))          // → derive topic, subscribe, announce
     SLOT(QString sendChat(QString text))
-    SLOT(QString startGame())                          // creator only; needs ≥2 players — seals a number
+    SLOT(QString startGame())                          // creator only; needs ≥2 players — opens the entropy phase
+    SLOT(QString submitEntropy(QString contribution))  // my mouse-draw randomness → folded into the seal
     SLOT(QString submitGuess(int guess))               // broadcast a guess; host proves + broadcasts the verdict
     SLOT(QString leaveRoom())
 }

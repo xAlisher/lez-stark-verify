@@ -27,6 +27,7 @@ public:
     QString joinRoom(QString code, QString displayName) override;
     QString sendChat(QString text) override;
     QString startGame() override;
+    QString submitEntropy(QString contribution) override;
     QString submitGuess(int guess) override;
     QString leaveRoom() override;
 
@@ -49,6 +50,10 @@ private:
     void proveGuess(int guess, const QString& byName);         // host: zk-verify prove-turn → verify → broadcast
     void broadcastVerdict(int guess, const QString& byName, int dir, bool proven);
     QString zkVerifyBin() const;
+    void sealFromEntropy();                                     // host: fold all contributions → seal the number
+
+    quint64               m_hostSeed = 0;      // host's own committed entropy (kept secret)
+    QHash<QString,QString> m_contribs;         // player id → mouse-draw contribution
 
     struct Player { QString name; QString role; qint64 lastSeenMs = 0; };
     QHash<QString, Player> m_players;   // keyed by player id

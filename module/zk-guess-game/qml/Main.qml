@@ -164,9 +164,9 @@ Rectangle {
                           + "   ·   you know " + root.rangeLo() + "…" + root.rangeHi()
                     color: root.dim
                 }
-                ListView {   // feed: turns in-game, chat pre-game
+                ListView {   // feed: turns + chat together in-game, chat pre-game
                     id: feed; Layout.fillWidth: true; Layout.fillHeight: true; clip: true
-                    model: (backend && backend.started) ? root.turns : root.chat
+                    model: (backend && backend.started) ? root.turns.concat(root.chat) : root.chat
                     onCountChanged: positionViewAtEnd()
                     delegate: Text {
                         width: feed.width; wrapMode: Text.WordWrap; font.family: root.mono; font.pixelSize: 13
@@ -177,9 +177,8 @@ Rectangle {
                         color: modelData.dir === 1 ? "#7ef0c4" : (modelData.dir !== undefined ? root.teal : root.fg)
                     }
                 }
-                RowLayout {   // pre-game: chat input
+                RowLayout {   // chat input — always available (anyone can chat, any time)
                     Layout.fillWidth: true; spacing: 8
-                    visible: !(backend && backend.started)
                     TextField {
                         id: chatInput; Layout.fillWidth: true
                         placeholderText: "message the room…"; color: root.fg; font.family: root.mono
@@ -240,11 +239,94 @@ Rectangle {
                     Layout.fillWidth: true
                 }
                 Text {
-                    visible: backend && backend.won
-                    text: "★ " + (backend ? backend.winnerName : "") + " won"; color: "#7ef0c4"
-                    font.family: root.mono; font.pixelSize: 13; wrapMode: Text.WordWrap; Layout.fillWidth: true
+                    visible: backend && backend.started && !backend.won
+                    text: "guessing…"; color: root.dim; font.family: root.mono; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true
                 }
             }
+        }
+    }
+
+    // ── B · ENTROPY PHASE (overlay) — everyone stirs the number ──────────────
+    Rectangle {
+        visible: backend && backend.collectingEntropy
+        anchors.fill: parent
+        color: "#f2060a08"
+        MouseArea { anchors.fill: parent }   // block room clicks (canvas has its own)
+        ColumnLayout {
+            anchors.centerIn: parent; spacing: 12; width: Math.min(parent.width - 48, 480)
+            Text { text: "🎲 stir the number"; color: root.teal; font.family: root.mono; font.pixelSize: 22; font.bold: true; Layout.alignment: Qt.AlignHCenter }
+            Text {
+                Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap
+                text: "Everyone scribbles. Your randomness is folded into the sealed number — so no single player (not even the host) picks it."
+                color: root.dim; font.family: root.mono; font.pixelSize: 12
+            }
+            Text {
+                visible: backend && backend.isCreator
+                text: "collecting entropy from players…"; color: root.amber; font.family: root.mono; font.pixelSize: 13
+                Layout.alignment: Qt.AlignHCenter
+            }
+            Rectangle {   // draw surface (players)
+                visible: backend && !backend.isCreator && !backend.entropySubmitted
+                Layout.fillWidth: true; Layout.preferredHeight: 220
+                color: "#0f1614"; border.color: "#1c2622"; radius: 6
+                Canvas {
+                    id: ecanvas; anchors.fill: parent
+                    property string strokes: ""
+                    property real lastX: 0
+                    property real lastY: 0
+                    MouseArea {
+                        anchors.fill: parent
+                        onPressed: (mouse) => { ecanvas.lastX = mouse.x; ecanvas.lastY = mouse.y
+                                                ecanvas.strokes += Math.round(mouse.x) + "," + Math.round(mouse.y) + ";" }
+                        onPositionChanged: (mouse) => {
+                            if (!pressed) return
+                            var ctx = ecanvas.getContext("2d")
+                            ctx.strokeStyle = root.teal; ctx.lineWidth = 2
+                            ctx.beginPath(); ctx.moveTo(ecanvas.lastX, ecanvas.lastY); ctx.lineTo(mouse.x, mouse.y); ctx.stroke()
+                            ecanvas.lastX = mouse.x; ecanvas.lastY = mouse.y
+                            ecanvas.strokes += Math.round(mouse.x) + "," + Math.round(mouse.y) + ";"
+                        }
+                    }
+                }
+            }
+            GButton {
+                visible: backend && !backend.isCreator && !backend.entropySubmitted
+                text: "Submit my draw"; Layout.alignment: Qt.AlignHCenter
+                enabled: ecanvas.strokes.length > 20
+                onClicked: backend && backend.submitEntropy(ecanvas.strokes)
+            }
+            Text {
+                visible: backend && !backend.isCreator && backend.entropySubmitted
+                text: "✓ entropy submitted — waiting for the seal…"; color: root.teal
+                font.family: root.mono; font.pixelSize: 13; Layout.alignment: Qt.AlignHCenter
+            }
+        }
+    }
+
+    // ── E · WIN SCREEN (overlay) ─────────────────────────────────────────────
+    Rectangle {
+        visible: backend && backend.won
+        anchors.fill: parent
+        color: "#f2060a08"
+        MouseArea { anchors.fill: parent }   // swallow clicks to the room behind
+        ColumnLayout {
+            anchors.centerIn: parent; spacing: 14; width: Math.min(parent.width - 64, 440)
+            Text { text: "★"; color: "#7ef0c4"; font.pixelSize: 44; Layout.alignment: Qt.AlignHCenter }
+            Text {
+                text: (backend ? backend.winnerName : "") + " won"
+                color: root.teal; font.family: root.mono; font.pixelSize: 26; font.bold: true
+                Layout.alignment: Qt.AlignHCenter
+            }
+            Text {
+                text: "the number was " + (backend ? backend.secretRevealed : "")
+                color: root.fg; font.family: root.mono; font.pixelSize: 18; Layout.alignment: Qt.AlignHCenter
+            }
+            Text {
+                text: "✓ revealed number hashes to the sealed commitment — provably fair"
+                color: root.dim; font.family: root.mono; font.pixelSize: 12; wrapMode: Text.WordWrap
+                horizontalAlignment: Text.AlignHCenter; Layout.fillWidth: true
+            }
+            GButton { text: "leave room"; Layout.alignment: Qt.AlignHCenter; onClicked: backend && backend.leaveRoom() }
         }
     }
 }

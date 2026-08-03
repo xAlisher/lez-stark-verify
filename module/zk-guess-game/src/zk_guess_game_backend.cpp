@@ -207,8 +207,21 @@ void ZkGuessGameBackend::ingest(const QVariant& payload)
                       {"text",o.value("text").toString()},{"ts",o.value("ts")}};
         m_chat.append(m);
         setChatJson(QString::fromUtf8(QJsonDocument(m_chat).toJson(QJsonDocument::Compact)));
+    } else if (t == QLatin1String("entropy_request")) {
+        setEntropySubmitted(false);
+        setCollectingEntropy(true);
+        log(QStringLiteral("host wants entropy — draw to stir the number"));
+    } else if (t == QLatin1String("entropy")) {
+        if (isCreator()) {              // host collects; seal once every player has drawn
+            m_contribs.insert(id, o.value("contrib").toString());
+            int expected = 0;
+            for (auto it = m_players.constBegin(); it != m_players.constEnd(); ++it)
+                if (it.value().role != QLatin1String("creator")) ++expected;
+            if (expected > 0 && m_contribs.size() >= expected) sealFromEntropy();
+        }
     } else if (t == QLatin1String("seal")) {
         setSealedCommitment(o.value("commitment").toString());
+        setCollectingEntropy(false);
         setStarted(true);
         log(QStringLiteral("host sealed a number — start guessing"));
     } else if (t == QLatin1String("guess")) {
@@ -278,15 +291,44 @@ QString ZkGuessGameBackend::startGame()
 {
     if (!isCreator()) return QStringLiteral("only the host can start");
     if (m_players.size() < 2) return QStringLiteral("need at least 2 players");
-    // seal a number the host holds; broadcast only the commitment.
-    m_secret = QRandomGenerator::global()->bounded(1000001u);
-    m_blind  = QRandomGenerator::global()->bounded(uint(0x7FFFFFFF));   // fits a JS number → win is client-verifiable
+    // open the entropy phase: everyone draws before the number is sealed, so no
+    // single player picks it. The host adds its own committed seed (kept secret).
+    m_hostSeed = QRandomGenerator::global()->generate64();
+    m_contribs.clear();
+    setCollectingEntropy(true);
+    sendEnvelope(QJsonObject{{"t","entropy_request"},{"id",m_myId}});
+    log(QStringLiteral("collecting entropy — everyone draw"));
+    return QString();
+}
+
+QString ZkGuessGameBackend::submitEntropy(QString contribution)
+{
+    if (!collectingEntropy()) return QStringLiteral("not collecting entropy");
+    if (entropySubmitted())  return QStringLiteral("already submitted");
+    setEntropySubmitted(true);
+    sendEnvelope(QJsonObject{{"t","entropy"},{"id",m_myId},{"name",m_display},{"contrib",contribution}});
+    return QString();
+}
+
+// host: fold host seed + every player's mouse-draw into the sealed number.
+void ZkGuessGameBackend::sealFromEntropy()
+{
+    QByteArray pre;
+    for (int i = 0; i < 8; ++i) pre.append(char((m_hostSeed >> (8 * i)) & 0xFF));
+    QList<QString> keys = m_contribs.keys();
+    keys.sort();
+    for (const QString& k : keys) pre.append(m_contribs.value(k).toUtf8());
+    const QByteArray h = QCryptographicHash::hash(pre, QCryptographicHash::Sha256);
+    quint64 v = 0;
+    for (int i = 0; i < 8; ++i) v |= (quint64(quint8(h.at(i))) << (8 * i));
+    m_secret = v % 1000001;
+    m_blind  = QRandomGenerator::global()->bounded(uint(0x7FFFFFFF));
     const QString c = commitHex(m_secret, m_blind);
     setSealedCommitment(c);
+    setCollectingEntropy(false);
     setStarted(true);
     sendEnvelope(QJsonObject{{"t","seal"},{"id",m_myId},{"commitment",c}});
-    log(QStringLiteral("sealed a number; game started"));
-    return QString();
+    log(QStringLiteral("sealed from everyone's entropy — start guessing"));
 }
 
 QString ZkGuessGameBackend::submitGuess(int guess)
