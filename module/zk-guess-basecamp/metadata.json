@@ -1,0 +1,31 @@
+{
+  "name": "zk_guess_ui",
+  "display_name": "ZK Guess",
+  "version": "0.1.0",
+  "type": "ui_qml",
+  "category": "zk",
+  "description": "The anon guessing room — verify a RISC0 STARK proof of above/below a sealed number on the Logos Execution Zone",
+  "main": "zk_guess_ui_plugin",
+  "icon": "src/icons/zk.png",
+  "view": "qml/ZkVerifyView.qml",
+  "dependencies": [],
+  "nix": {
+    "packages": {
+      "build": [],
+      "runtime": [
+        "qt6.qtdeclarative"
+      ]
+    },
+    "external_libraries": [],
+    "cmake": {
+      "find_packages": [
+        "Qt6Gui"
+      ],
+      "extra_sources": [],
+      "extra_include_dirs": [],
+      "extra_link_libraries": [
+        "Qt6::Gui"
+      ]
+    }
+  }
+}
