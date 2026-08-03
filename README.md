@@ -95,11 +95,12 @@ packed) beside the plugin, so per-turn `verified on LEZ ✓` works out of the bo
 run on the public `logos.dev` Waku network. Only **real on-zone win settlement** needs the sequencer
 URL + auth, supplied via env.
 
-**Install the signed release (Linux x86-64)** — `zk_guess_game v0.1.0`, ✓ Signed by xAlisher:
+**Install the signed release (Linux x86-64)** — `zk_guess_game v0.1.1`, ✓ Signed by xAlisher:
 - Download the `.lgx` from
-  https://github.com/xAlisher/lez-stark-verify/releases/tag/zk_guess_game-v0.1.0
+  https://github.com/xAlisher/lez-stark-verify/releases/tag/zk_guess_game-v0.1.1
 - Install via Basecamp's Package Manager / `lgpm` (no `--allow-unsigned` needed). Needs the
-  `delivery_module` (auto-resolved).
+  `delivery_module` (auto-resolved). The STARK prover **and** the on-zone `settle-win` binary are
+  bundled in the `.lgx`, so real settlement works out of the box.
 
 **Build from source:**
 ```
@@ -122,9 +123,12 @@ experiments/            capped RISC0 runs on Sneg (the feasibility envelope)
 ## Status
 Real + confirmed across isolated Basecamps: rooms by code, roster + chat, distributed-entropy seal,
 turn order, per-turn guessing with the range slider + proto-style proving spinner, client-verified
-win, win screen, **bundled per-turn STARK**, and **opt-in real-mode win settlement on
-`sequencer.logos.live`**. The TOK pot (EPIC D, proven standalone on Sneg) and per-turn on-zone
-settlement are the next wire-ups. Decision records: [`docs/adr/`](docs/adr/).
+win, win screen, **bundled per-turn STARK**, and **real-mode win settlement on
+`sequencer.logos.live`** — the win now settles on-zone and the UI shows the actual settlement
+**tx hash + block** (verified live: block 1649, tx `e7491f6c…f2259`). The prover is capped to half
+the cores so the machine stays usable while it proves. Settlement is currently two proofs
+(`init_game` + winning guess); collapsing to one, the TOK pot (EPIC D, proven standalone on Sneg),
+and per-turn on-zone settlement are the next wire-ups. Decision records: [`docs/adr/`](docs/adr/).
 
 ## Environment
 Sneg (farm build box) runs capped experiments; the RISC0 toolchain lives on `/extra`. Never build on
