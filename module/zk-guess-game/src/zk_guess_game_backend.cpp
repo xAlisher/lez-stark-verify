@@ -14,8 +14,21 @@
 #include <QProcessEnvironment>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
+
+#include <dlfcn.h>   // dladdr — resolve the plugin's own .so dir so bundled tools sit beside it
 
 namespace {
+
+// Directory this plugin .so was loaded from — so a bundled zk-verify + r0vm sit right beside it
+// (dladdr on a symbol in THIS translation unit → the .so path → its dir). Empty if unresolved.
+QString pluginDir() {
+    Dl_info info;
+    if (dladdr(reinterpret_cast<const void*>(&pluginDir), &info) && info.dli_fname)
+        return QFileInfo(QString::fromUtf8(info.dli_fname)).absolutePath();
+    return QString();
+}
+
 constexpr int HEARTBEAT_MS = 15000;
 constexpr int PRUNE_MS     = 5000;
 constexpr qint64 TTL_MS    = 45000;
@@ -394,8 +407,11 @@ void ZkGuessGameBackend::addTurn(int guess, int dir, const QString& byName, bool
 
 QString ZkGuessGameBackend::zkVerifyBin() const
 {
+    // 1) explicit override, 2) bundled beside the plugin (.lgx ships zk-verify + r0vm), 3) dev install.
     const QString env = qEnvironmentVariable("ZK_VERIFY_BIN");
     if (!env.isEmpty() && QFileInfo::exists(env)) return env;
+    const QString bundled = pluginDir() + QStringLiteral("/zk-verify");
+    if (!pluginDir().isEmpty() && QFileInfo::exists(bundled)) return bundled;
     return QDir::homePath() + QStringLiteral("/.local/share/zk-guess/zk-verify");
 }
 
@@ -422,6 +438,10 @@ void ZkGuessGameBackend::proveGuess(int guess, const QString& byName)
     const QString out = QDir::tempPath() + QStringLiteral("/zkg-%1.receipt").arg(nowMs());
     QProcessEnvironment penv = QProcessEnvironment::systemEnvironment();
     penv.insert(QStringLiteral("RISC0_DEV_MODE"), QStringLiteral("1"));
+    // zk-verify spawns r0vm as its prover server — point it at the r0vm bundled beside zk-verify
+    // (so proving works out of the box on a catalog install, no rzup/PATH r0vm needed).
+    const QString r0vm = QFileInfo(bin).absolutePath() + QStringLiteral("/r0vm");
+    if (QFileInfo::exists(r0vm)) penv.insert(QStringLiteral("RISC0_SERVER_PATH"), r0vm);
 
     auto* prove = new QProcess(this);
     prove->setProcessEnvironment(penv);

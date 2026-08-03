@@ -15,5 +15,9 @@
       src = ./.;
       configFile = ./metadata.json;
       flakeInputs = inputs;
+      # NOTE: the prover (zk-verify + r0vm, ~147 MB) is bundled into the .lgx AFTER this build by
+      # tools/bundle-prover-into-lgx.sh — the module-builder's postInstall $out is filtered out by the
+      # portable bundler (it copies only the plugin .so + its ldd-traced deps), so a flake-native bundle
+      # isn't possible until the bundler gains an extra-files hook (upstream ask). See docs/GAME-DESIGN.md.
     };
 }
