@@ -84,13 +84,15 @@ Rectangle {
         Text { text: "⌗ ZK Guess"; color: root.teal; font.family: root.mono; font.pixelSize: 26; font.bold: true; Layout.alignment: Qt.AlignHCenter }
         Text {
             Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap
-            text: "A provably-fair guessing party. The machine seals a number; you guess; it proves above/below without revealing it — and can't cheat."
+            text: "A provably-fair number-guessing party. Everyone stirs a secret number into a sealed commitment, then takes turns guessing over Logos Messaging.\n\n"
+                + "Each guess is answered with a RISC0 STARK proof verified on the Logos Execution Zone (LEZ) — so the host can't lie about \"higher / lower\" and can't change the number. The winner's reveal is checked against the seal."
             color: root.dim; font.family: root.mono; font.pixelSize: 13
         }
         TextField {
             id: nameField; Layout.fillWidth: true
             placeholderText: "your name"; color: root.fg; font.family: root.mono
             background: Rectangle { color: "#0f1614"; border.color: "#1c2622"; radius: 4 }
+            Component.onCompleted: if (backend && backend.suggestedName.length > 0) text = backend.suggestedName
         }
         GButton {
             text: "Start new game"; Layout.fillWidth: true
@@ -119,6 +121,16 @@ Rectangle {
         visible: !backend || !backend.inRoom
         status: backend ? backend.connectionStatus : "idle"
         anchors.top: parent.top; anchors.right: parent.right; anchors.margins: 14
+    }
+
+    // design-doc link — pinned bottom-center of the welcome screen + copy
+    RowLayout {
+        visible: !backend || !backend.inRoom
+        anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter; anchors.bottomMargin: 14
+        spacing: 8
+        Text { text: "📖 game design + how it works →"; color: root.dim; font.family: root.mono; font.pixelSize: 11 }
+        TextEdit { id: ghClip; visible: false; text: "https://github.com/xAlisher/lez-stark-verify/blob/master/docs/GAME-DESIGN.md" }
+        GButton { text: "⧉ copy link"; padding: 3; onClicked: { ghClip.selectAll(); ghClip.copy() } }
     }
 
     // ── ROOM ────────────────────────────────────────────────────────────────
@@ -187,22 +199,29 @@ Rectangle {
                     }
                     GButton { text: "Send"; onClicked: { if (backend) backend.sendChat(chatInput.text); chatInput.text = "" } }
                 }
-                Text {   // in-game host
+                Text {   // host sees whose turn it is
                     visible: backend && backend.started && backend.isCreator && !backend.won
-                    text: "you sealed the number — waiting for guesses…"
-                    color: root.dim; font.family: root.mono; font.pixelSize: 12
+                    text: "▸ " + (backend ? backend.currentTurnName : "") + " to guess…  (you sealed the number)"
+                    color: root.dim; font.family: root.mono; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true
                 }
-                RowLayout {   // in-game player: slide within the known range, then Guess
+                Text {   // player waiting for someone else's turn
+                    visible: backend && backend.started && !backend.isCreator && !backend.won && backend.currentTurnId !== backend.myId
+                    text: "▸ waiting — " + (backend ? backend.currentTurnName : "") + "'s turn"
+                    color: root.amber; font.family: root.mono; font.pixelSize: 12
+                }
+                RowLayout {   // MY turn: slide within the known range, then Guess
                     Layout.fillWidth: true; spacing: 10
-                    visible: backend && backend.started && !backend.isCreator && !backend.won
+                    visible: backend && backend.started && !backend.isCreator && !backend.won && backend.currentTurnId === backend.myId
+                    Text { text: "your turn ▸"; color: root.teal; font.family: root.mono; font.pixelSize: 12; font.bold: true }
                     Text { text: root.rangeLo(); color: root.dim; font.family: root.mono; font.pixelSize: 12 }
                     Slider {
                         id: guessSlider; Layout.fillWidth: true
                         from: root.rangeLo(); to: Math.max(root.rangeLo(), root.rangeHi()); stepSize: 1
                         Component.onCompleted: value = Math.round((root.rangeLo() + root.rangeHi()) / 2)
-                        Connections {   // re-center on each new verdict (the narrowed midpoint = the optimal next guess)
+                        Connections {   // re-center on every verdict AND when the turn arrives (range narrows in all UIs)
                             target: root.backend; enabled: root.backend !== null; ignoreUnknownSignals: true
-                            function onTurnsJsonChanged() { guessSlider.value = Math.round((root.rangeLo() + root.rangeHi()) / 2) }
+                            function onTurnsJsonChanged()    { guessSlider.value = Math.round((root.rangeLo() + root.rangeHi()) / 2) }
+                            function onCurrentTurnIdChanged() { guessSlider.value = Math.round((root.rangeLo() + root.rangeHi()) / 2) }
                         }
                     }
                     Text { text: root.rangeHi(); color: root.dim; font.family: root.mono; font.pixelSize: 12 }
@@ -221,8 +240,10 @@ Rectangle {
                         spacing: 8
                         Rectangle { width: 7; height: 7; radius: 4; color: modelData.online ? root.teal : root.dim }
                         Text {
-                            text: (modelData.name || "?") + (modelData.role === "creator" ? " ★" : "")
-                            color: root.fg; font.family: root.mono; font.pixelSize: 13
+                            property bool isTurn: root.backend && root.backend.started && modelData.id === root.backend.currentTurnId
+                            text: (isTurn ? "▸ " : "") + (modelData.name || "?") + (modelData.role === "creator" ? " ★" : "")
+                            color: isTurn ? root.teal : root.fg; font.family: root.mono; font.pixelSize: 13
+                            font.bold: isTurn
                         }
                     }
                 }
@@ -272,19 +293,30 @@ Rectangle {
                 Canvas {
                     id: ecanvas; anchors.fill: parent
                     property string strokes: ""
-                    property real lastX: 0
-                    property real lastY: 0
+                    property var pts: []      // {x,y,pen} — pen=false starts a new stroke
+                    onPaint: {
+                        var ctx = getContext("2d")
+                        ctx.clearRect(0, 0, width, height)
+                        ctx.strokeStyle = root.teal; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.lineCap = "round"
+                        ctx.beginPath()
+                        for (var i = 0; i < pts.length; i++) {
+                            var p = pts[i]
+                            if (p.pen) ctx.lineTo(p.x, p.y); else ctx.moveTo(p.x, p.y)
+                        }
+                        ctx.stroke()
+                    }
                     MouseArea {
                         anchors.fill: parent
-                        onPressed: (mouse) => { ecanvas.lastX = mouse.x; ecanvas.lastY = mouse.y
-                                                ecanvas.strokes += Math.round(mouse.x) + "," + Math.round(mouse.y) + ";" }
+                        onPressed: (mouse) => {
+                            ecanvas.pts.push({x: mouse.x, y: mouse.y, pen: false})
+                            ecanvas.strokes += Math.round(mouse.x) + "," + Math.round(mouse.y) + ";"
+                            ecanvas.requestPaint()
+                        }
                         onPositionChanged: (mouse) => {
                             if (!pressed) return
-                            var ctx = ecanvas.getContext("2d")
-                            ctx.strokeStyle = root.teal; ctx.lineWidth = 2
-                            ctx.beginPath(); ctx.moveTo(ecanvas.lastX, ecanvas.lastY); ctx.lineTo(mouse.x, mouse.y); ctx.stroke()
-                            ecanvas.lastX = mouse.x; ecanvas.lastY = mouse.y
+                            ecanvas.pts.push({x: mouse.x, y: mouse.y, pen: true})
                             ecanvas.strokes += Math.round(mouse.x) + "," + Math.round(mouse.y) + ";"
+                            ecanvas.requestPaint()
                         }
                     }
                 }

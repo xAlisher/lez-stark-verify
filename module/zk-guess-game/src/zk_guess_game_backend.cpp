@@ -32,6 +32,21 @@ QString randomCode() {
 }
 qint64 nowMs() { return QDateTime::currentMSecsSinceEpoch(); }
 
+// A deterministic 3-word handle from an id (BIP39-ish, small list — enough for a lobby name).
+QString threeWords(const QString& id) {
+    static const char* W[64] = {
+        "amber","arc","ash","bark","blaze","bloom","brisk","calm","cedar","cliff","clove","coal",
+        "cove","crisp","dawn","dune","ember","fern","flint","fox","frost","glade","grove","harbor",
+        "haze","holt","iris","ivy","jade","kelp","lark","leaf","loam","mica","mist","moss",
+        "north","oak","onyx","opal","pike","pine","quill","reef","rill","rook","sage","salt",
+        "shale","slate","spark","spire","tarn","teal","thorn","tide","vale","vane","wave","wick",
+        "wren","yarn","zephyr","zinc"
+    };
+    const QByteArray h = QCryptographicHash::hash(id.toUtf8(), QCryptographicHash::Sha256);
+    return QStringLiteral("%1-%2-%3")
+        .arg(W[quint8(h.at(0)) & 63]).arg(W[quint8(h.at(1)) & 63]).arg(W[quint8(h.at(2)) & 63]);
+}
+
 // SHA256(secret_le ‖ blind_le) — matches the zk-guess guest/CLI commitment exactly.
 QString commitHex(quint64 secret, quint64 blind) {
     QByteArray pre;
@@ -47,6 +62,7 @@ ZkGuessGameBackend::ZkGuessGameBackend(QObject* parent)
     StationCrypto::init();   // sodium_init (idempotent) before any KDF/AEAD
     m_myId = randomId();
     setMyId(m_myId);
+    setSuggestedName(threeWords(m_myId));   // deterministic 3-word handle from my id
 }
 
 ZkGuessGameBackend::~ZkGuessGameBackend() = default;
@@ -244,6 +260,9 @@ void ZkGuessGameBackend::ingest(const QVariant& payload)
                 log(QStringLiteral("reveal did NOT match the seal — rejected"));
             }
         }
+    } else if (t == QLatin1String("turn")) {
+        setCurrentTurnId(o.value("turnId").toString());
+        setCurrentTurnName(o.value("turnName").toString());
     }
 }
 
@@ -328,7 +347,31 @@ void ZkGuessGameBackend::sealFromEntropy()
     setCollectingEntropy(false);
     setStarted(true);
     sendEnvelope(QJsonObject{{"t","seal"},{"id",m_myId},{"commitment",c}});
+
+    // establish a deterministic turn order over the non-host players + open the first turn.
+    QList<QString> ids;
+    for (auto it = m_players.constBegin(); it != m_players.constEnd(); ++it)
+        if (it.value().role != QLatin1String("creator")) ids.append(it.key());
+    ids.sort();
+    m_turnOrder = ids;
+    m_turnIdx = 0;
+    if (!m_turnOrder.isEmpty()) {
+        const QString tid = m_turnOrder.at(0);
+        setCurrentTurnId(tid);
+        setCurrentTurnName(m_players.value(tid).name);
+        sendEnvelope(QJsonObject{{"t","turn"},{"id",m_myId},{"turnId",tid},{"turnName",m_players.value(tid).name}});
+    }
     log(QStringLiteral("sealed from everyone's entropy — start guessing"));
+}
+
+void ZkGuessGameBackend::advanceTurn()
+{
+    if (m_turnOrder.isEmpty()) return;
+    m_turnIdx = (m_turnIdx + 1) % m_turnOrder.size();
+    const QString tid = m_turnOrder.at(m_turnIdx);
+    setCurrentTurnId(tid);
+    setCurrentTurnName(m_players.value(tid).name);
+    sendEnvelope(QJsonObject{{"t","turn"},{"id",m_myId},{"turnId",tid},{"turnName",m_players.value(tid).name}});
 }
 
 QString ZkGuessGameBackend::submitGuess(int guess)
@@ -336,6 +379,7 @@ QString ZkGuessGameBackend::submitGuess(int guess)
     if (!started()) return QStringLiteral("game not started");
     if (won())      return QStringLiteral("game over");
     if (isCreator()) return QStringLiteral("the host can't guess (they sealed it)");
+    if (currentTurnId() != m_myId) return QStringLiteral("not your turn");
     if (guess < 0 || guess > 1000000) return QStringLiteral("enter 0–1,000,000");
     sendEnvelope(QJsonObject{{"t","guess"},{"id",m_myId},{"name",m_display},{"guess",guess}});
     return QString();
@@ -361,6 +405,7 @@ void ZkGuessGameBackend::broadcastVerdict(int guess, const QString& byName, int 
     sendEnvelope(v);
     addTurn(guess, dir, byName, proven);          // host records locally (no self-echo)
     if (dir == 1) { setWon(true); setWinnerName(byName); setSecretRevealed(int(m_secret)); }
+    else          { advanceTurn(); }              // pass the turn to the next player
 }
 
 // Host proves a turn on the real zk-verify STARK engine, then broadcasts the verdict.

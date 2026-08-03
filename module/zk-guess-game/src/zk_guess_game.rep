@@ -10,6 +10,9 @@ class ZkGuessGame
     PROP(bool    inRoom=false READONLY)
     PROP(bool    isCreator=false READONLY)
     PROP(QString myId="" READONLY)                    // my ephemeral player id
+    PROP(QString suggestedName="" READONLY)           // 3 words derived from my id (prefill the name field)
+    PROP(QString currentTurnId="" READONLY)           // whose move it is (turn order)
+    PROP(QString currentTurnName="" READONLY)
     PROP(QString rosterJson="[]" READONLY)            // [{id,name,role,online}] TTL-pruned
     PROP(QString chatJson="[]" READONLY)              // [{id,name,text,ts}]
     PROP(bool    collectingEntropy=false READONLY)    // entropy phase: everyone draws before the seal

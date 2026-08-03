@@ -2,6 +2,7 @@
 #define ZK_GUESS_GAME_BACKEND_H
 
 #include <QString>
+#include <QStringList>
 #include <QHash>
 #include <QByteArray>
 #include <QJsonArray>
@@ -51,9 +52,12 @@ private:
     void broadcastVerdict(int guess, const QString& byName, int dir, bool proven);
     QString zkVerifyBin() const;
     void sealFromEntropy();                                     // host: fold all contributions → seal the number
+    void advanceTurn();                                         // host: move to the next player + broadcast
 
     quint64               m_hostSeed = 0;      // host's own committed entropy (kept secret)
     QHash<QString,QString> m_contribs;         // player id → mouse-draw contribution
+    QStringList           m_turnOrder;         // ordered non-host player ids (host-authoritative)
+    int                   m_turnIdx = -1;
 
     struct Player { QString name; QString role; qint64 lastSeenMs = 0; };
     QHash<QString, Player> m_players;   // keyed by player id
