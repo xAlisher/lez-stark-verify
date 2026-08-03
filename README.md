@@ -89,16 +89,24 @@ The win (and, later, the pot) can settle **on-zone** on the **Logos Execution Zo
 
 ## Install & run — "does it work from the catalog?"
 
-**Yes, zero-config.** The `.lgx` **bundles the prover** (`zk-verify` + `r0vm`, ~147 MB, 82 MB
-gzipped) beside the plugin, so per-turn `verified on LEZ ✓` works out of the box — no `rzup`, no
+**Yes, zero-config.** The `.lgx` **bundles the prover** (`zk-verify` + `r0vm`, ~147 MB, ~82 MB
+packed) beside the plugin, so per-turn `verified on LEZ ✓` works out of the box — no `rzup`, no
 `ZK_VERIFY_BIN`, no PATH `r0vm` (see [ADR-0002](docs/adr/0002-bundle-prover.md)). Rooms/chat/turns
 run on the public `logos.dev` Waku network. Only **real on-zone win settlement** needs the sequencer
 URL + auth, supplied via env.
 
+**Install the signed release (Linux x86-64)** — `zk_guess_game v0.1.0`, ✓ Signed by xAlisher:
+- Download the `.lgx` from
+  https://github.com/xAlisher/lez-stark-verify/releases/tag/zk_guess_game-v0.1.0
+- Install via Basecamp's Package Manager / `lgpm` (no `--allow-unsigned` needed). Needs the
+  `delivery_module` (auto-resolved).
+
+**Build from source:**
 ```
+cd module/zk-guess-game
 nix build '.#lgx-portable'
-module/zk-guess-game/tools/bundle-prover-into-lgx.sh <built.lgx>   # inject the prover
-# install the resulting .lgx into Basecamp; needs the delivery_module
+tools/bundle-prover-into-lgx.sh <built.lgx>   # inject the prover (via lgx add — hashes stay valid)
+# then sign + install the resulting .lgx into Basecamp
 ```
 
 ## Repo layout
