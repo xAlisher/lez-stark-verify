@@ -7,8 +7,8 @@ without revealing the secret, **and** prove the secret is the committed one (no 
 the proven `module/zk-eligibility` guest (secret-vs-threshold → bool) → (guess-vs-secret → dir
 + commitment-open).
 
-> **Status: DRAFT — the source below is written but NOT yet built or proven.** Do not treat as
-> working until the 4-ways harness passes on a real STARK (`RISC0_DEV_MODE` unset).
+> **Status: BUILT + PROVEN ✅** — the 4-ways harness (M1) and the headless game (M2) both pass
+> on a real STARK (`RISC0_DEV_MODE` unset). Results: [`docs/reports/mvp-headless-report.md`](../../docs/reports/mvp-headless-report.md).
 
 ## Build (M1 acceptance)
 1. Scaffold a RISC0 project (reuse the `zk-eligibility` layout): `methods/guest/src/main.rs` ←

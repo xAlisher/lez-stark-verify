@@ -1,15 +1,16 @@
-// zk-guess M1 guest — the game oracle.  (DRAFT — see README; not yet built.)
+// zk-guess M1 guest — the game oracle.
 //
 // Proves the honest direction of a PUBLIC guess vs a SEALED secret, WITHOUT
 // revealing the secret, and proves the secret is the COMMITTED one (no swap):
 //   private witnesses : secret, blind   (never committed)
-//   public inputs     : guess, commitment = SHA256(secret ‖ blind)
-//   journal (public)  : (commitment, guess, dir)     dir ∈ {0 below,1 equal,2 above}
+//   public inputs     : guess, commitment = SHA256(secret_le ‖ blind_le)
+//   journal (public)  : (commitment, guess, dir)   dir ∈ {0 below,1 equal,2 above}
 //
 // Soundness: an inconsistent (secret,blind) halts the guest, so no valid receipt
 // can exist for a swapped number — the host cannot lie OR move the target.
+// Uses sha2 in both guest and host, so the commitment digest matches by construction.
 use risc0_zkvm::guest::env;
-use risc0_zkvm::sha::{Impl, Sha256};
+use sha2::{Digest, Sha256};
 
 fn main() {
     // PRIVATE witnesses — never committed
@@ -20,12 +21,12 @@ fn main() {
     let commitment: [u8; 32] = env::read();
 
     // 1) commitment-open: bind the sealed number. A swapped secret fails here.
-    let mut preimage = [0u8; 16];
-    preimage[..8].copy_from_slice(&secret.to_le_bytes());
-    preimage[8..].copy_from_slice(&blind.to_le_bytes());
-    let digest = Impl::hash_bytes(&preimage);
+    let mut h = Sha256::new();
+    h.update(secret.to_le_bytes());
+    h.update(blind.to_le_bytes());
+    let digest: [u8; 32] = h.finalize().into();
     assert!(
-        digest.as_bytes() == commitment,
+        digest == commitment,
         "commitment mismatch: sealed number was swapped"
     );
 
