@@ -55,12 +55,13 @@ agree byte-for-byte: the QML backend (QCryptographicHash), the RISC0 guest, and 
 |---|---|---|
 | where | host, **local**, bundled `zk-verify` | winner's machine → **sequencer.logos.live** |
 | RISC0 mode | **dev-mode** (`RISC0_DEV_MODE=1`) | **real** (unset) |
-| cost | **~1–3 s** | **~16 min / ~9.6 GB** (client-side) |
-| meaning | fast, playable "verified on LEZ ✓" every turn | a real STARK verified on-zone, once per game |
+| cost | **~1–3 s** | **two real proofs, ~30–40 min** (host-dependent) · ~9.6 GB each |
+| meaning | fast, playable "verified on LEZ ✓" every turn | two real STARKs (seal + winning guess) verified on-zone, once per game |
 
 Dev-mode receipts are fast but not cryptographically valid — right for a snappy party game where a
 lie is still caught by the same guest assertion. Real settlement is where the STARK becomes
-on-chain truth; it's **infrequent and non-blocking**, so 16 min never gates play.
+on-chain truth; it's **infrequent and non-blocking**, so the ~30–40 min (two proofs, and it scales
+with the host machine) never gates play.
 
 ## The LEZ, in detail
 
@@ -74,8 +75,9 @@ The win (and, later, the pot) can settle **on-zone** on the **Logos Execution Zo
 - **Submission** carries the program **inline** (`ProgramWithDependencies`) — no `deploy-program`
   step. Inclusion in a block = the **sequencer verified the STARK** against
   `PRIVACY_PRESERVING_CIRCUIT_ID`.
-- **Prove-side vs verify-side split** — the heavy **~16 min / 9.6 GB** proving happens **in the
-  submitting wallet (client)**; the **sequencer only verifies** the receipt (seconds, low RAM). So a
+- **Prove-side vs verify-side split** — the heavy proving (**~16 min / 9.6 GB per proof**, two per
+  settlement) happens **in the submitting wallet (client)**; the **sequencer only verifies** the
+  receipt (seconds, low RAM). So a
   public sequencer runs on a modest box.
 - **Our sequencer:** **`https://sequencer.logos.live`** — our own standalone LEZ sequencer, real
   verification mode, version-matched to rev `787a15aa`. We run our own because the public
