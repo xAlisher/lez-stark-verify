@@ -27,6 +27,7 @@ public:
     QString joinRoom(QString code, QString displayName) override;
     QString sendChat(QString text) override;
     QString startGame() override;
+    QString submitGuess(int guess) override;
     QString leaveRoom() override;
 
 protected:
@@ -44,9 +45,18 @@ private:
     void pruneRoster();
     void log(const QString& line);
 
+    void addTurn(int guess, int dir, const QString& byName);   // append + narrow range + win
+
     struct Player { QString name; QString role; qint64 lastSeenMs = 0; };
     QHash<QString, Player> m_players;   // keyed by player id
     QJsonArray m_chat;                  // [{id,name,text,ts}]
+    QJsonArray m_turns;                 // [{name,guess,dir}]
+
+    // game state (host holds the secret; players only ever see the commitment + verdicts)
+    quint64 m_secret = 0;
+    quint64 m_blind  = 0;
+    int     m_lo = 0;
+    int     m_hi = 1000000;
 
     QString    m_myId;
     QString    m_display;

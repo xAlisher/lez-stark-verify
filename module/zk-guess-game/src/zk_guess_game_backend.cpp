@@ -9,6 +9,7 @@
 #include <QRandomGenerator>
 #include <QDateTime>
 #include <QByteArray>
+#include <QCryptographicHash>
 
 namespace {
 constexpr int HEARTBEAT_MS = 15000;
@@ -194,9 +195,41 @@ void ZkGuessGameBackend::ingest(const QVariant& payload)
                       {"text",o.value("text").toString()},{"ts",o.value("ts")}};
         m_chat.append(m);
         setChatJson(QString::fromUtf8(QJsonDocument(m_chat).toJson(QJsonDocument::Compact)));
-    } else if (t == QLatin1String("start")) {
+    } else if (t == QLatin1String("seal")) {
+        setSealedCommitment(o.value("commitment").toString());
         setStarted(true);
-        log(QStringLiteral("game started by the host"));
+        log(QStringLiteral("host sealed a number — start guessing"));
+    } else if (t == QLatin1String("guess")) {
+        if (isCreator()) {   // only the host holds the secret → only the host answers
+            const int g = o.value("guess").toInt();
+            const QString name = o.value("name").toString();
+            const int dir = (quint64(g) < m_secret) ? 0 : (quint64(g) == m_secret ? 1 : 2);
+            QJsonObject v{{"t","verdict"},{"id",m_myId},{"guess",g},{"dir",dir},{"name",name}};
+            if (dir == 1) {   // exact — reveal so everyone can verify the seal
+                v.insert("winner", name);
+                v.insert("secret", int(m_secret));
+                v.insert("blind",  int(m_blind));
+            }
+            sendEnvelope(v);
+            addTurn(g, dir, name);                 // host records locally (won't get its own echo)
+            if (dir == 1) { setWon(true); setWinnerName(name); setSecretRevealed(int(m_secret)); }
+        }
+    } else if (t == QLatin1String("verdict")) {
+        const int g = o.value("guess").toInt();
+        const int dir = o.value("dir").toInt();
+        addTurn(g, dir, o.value("name").toString());
+        if (dir == 1) {
+            const quint64 s = quint64(o.value("secret").toInt());
+            const quint64 b = quint64(o.value("blind").toInt());
+            // provably-fair win: the revealed number must hash to the commitment sealed at start.
+            if (commitHex(s, b) == sealedCommitment()) {
+                setWon(true);
+                setWinnerName(o.value("winner").toString());
+                setSecretRevealed(int(s));
+            } else {
+                log(QStringLiteral("reveal did NOT match the seal — rejected"));
+            }
+        }
     }
 }
 
@@ -240,14 +273,44 @@ QString ZkGuessGameBackend::sendChat(QString text)
     return QString();
 }
 
+// SHA256(secret_le ‖ blind_le) — matches the zk-guess guest/CLI commitment exactly.
+static QString commitHex(quint64 secret, quint64 blind)
+{
+    QByteArray pre;
+    for (int i = 0; i < 8; ++i) pre.append(char((secret >> (8 * i)) & 0xFF));
+    for (int i = 0; i < 8; ++i) pre.append(char((blind  >> (8 * i)) & 0xFF));
+    return QString::fromLatin1(QCryptographicHash::hash(pre, QCryptographicHash::Sha256).toHex());
+}
+
 QString ZkGuessGameBackend::startGame()
 {
     if (!isCreator()) return QStringLiteral("only the host can start");
     if (m_players.size() < 2) return QStringLiteral("need at least 2 players");
-    sendEnvelope(QJsonObject{{"t","start"},{"id",m_myId}});
+    // seal a number the host holds; broadcast only the commitment.
+    m_secret = QRandomGenerator::global()->bounded(1000001u);
+    m_blind  = QRandomGenerator::global()->bounded(uint(0x7FFFFFFF));   // fits a JS number → win is client-verifiable
+    const QString c = commitHex(m_secret, m_blind);
+    setSealedCommitment(c);
     setStarted(true);
-    log(QStringLiteral("game started"));
+    sendEnvelope(QJsonObject{{"t","seal"},{"id",m_myId},{"commitment",c}});
+    log(QStringLiteral("sealed a number; game started"));
     return QString();
+}
+
+QString ZkGuessGameBackend::submitGuess(int guess)
+{
+    if (!started()) return QStringLiteral("game not started");
+    if (won())      return QStringLiteral("game over");
+    if (isCreator()) return QStringLiteral("the host can't guess (they sealed it)");
+    if (guess < 0 || guess > 1000000) return QStringLiteral("enter 0–1,000,000");
+    sendEnvelope(QJsonObject{{"t","guess"},{"id",m_myId},{"name",m_display},{"guess",guess}});
+    return QString();
+}
+
+void ZkGuessGameBackend::addTurn(int guess, int dir, const QString& byName)
+{
+    m_turns.append(QJsonObject{{"name",byName},{"guess",guess},{"dir",dir}});
+    setTurnsJson(QString::fromUtf8(QJsonDocument(m_turns).toJson(QJsonDocument::Compact)));
 }
 
 QString ZkGuessGameBackend::leaveRoom()

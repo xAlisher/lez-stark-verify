@@ -18,7 +18,16 @@ Rectangle {
 
     property var roster: []
     property var chat: []
+    property var turns: []
     function statusColor(s) { return s === "connected" ? teal : (s === "connecting" ? amber : dim) }
+    function dirName(d) { return d === 0 ? "BELOW" : d === 1 ? "EQUAL" : d === 2 ? "ABOVE" : "?" }
+    function rangeLo() { var lo = 0; for (var i=0;i<turns.length;i++){ var t=turns[i]; if(t.dir===0 && t.guess+1>lo) lo=t.guess+1 } return lo }
+    function rangeHi() { var hi = 1000000; for (var i=0;i<turns.length;i++){ var t=turns[i]; if(t.dir===2 && t.guess-1<hi) hi=t.guess-1 } return hi }
+    function submitInput(s) {
+        if (!backend || !s) return
+        if (backend.started) { var n = parseInt(s); if (!isNaN(n)) backend.submitGuess(n) }
+        else backend.sendChat(s)
+    }
 
     // reusable delivery/Logos status pill (booth/receiver style)
     component StatusPill : Rectangle {
@@ -53,6 +62,7 @@ Rectangle {
     function refresh() {
         try { roster = JSON.parse(backend ? backend.rosterJson : "[]") } catch(e) { roster = [] }
         try { chat   = JSON.parse(backend ? backend.chatJson   : "[]") } catch(e) { chat = [] }
+        try { turns  = JSON.parse(backend ? backend.turnsJson  : "[]") } catch(e) { turns = [] }
     }
     Connections {
         target: root.backend
@@ -60,6 +70,7 @@ Rectangle {
         ignoreUnknownSignals: true
         function onRosterJsonChanged() { root.refresh() }
         function onChatJsonChanged()   { root.refresh() }
+        function onTurnsJsonChanged()  { root.refresh() }
     }
     Component.onCompleted: refresh()
 
@@ -134,28 +145,59 @@ Rectangle {
         RowLayout {
             Layout.fillWidth: true; Layout.fillHeight: true; spacing: 12
 
-            // chat / log
+            // left: game board when started, else chat
             ColumnLayout {
                 Layout.fillWidth: true; Layout.fillHeight: true; spacing: 8
-                ListView {
-                    id: chatView; Layout.fillWidth: true; Layout.fillHeight: true; clip: true
-                    model: root.chat
+
+                Text {   // win banner
+                    visible: backend && backend.won
+                    Layout.fillWidth: true; wrapMode: Text.WordWrap; font.family: root.mono; font.pixelSize: 14
+                    text: "★ " + (backend ? backend.winnerName : "") + " won — the number was "
+                          + (backend ? backend.secretRevealed : "") + "  ✓ matches the seal"
+                    color: "#7ef0c4"
+                }
+                Text {   // game info: sealed commitment + narrowed range
+                    visible: backend && backend.started
+                    Layout.fillWidth: true; font.family: root.mono; font.pixelSize: 12
+                    text: "🔒 sealed " + (backend && backend.sealedCommitment.length >= 8
+                              ? "0x" + backend.sealedCommitment.substring(0,8) + "…" : "…")
+                          + "   ·   you know " + root.rangeLo() + "…" + root.rangeHi()
+                    color: root.dim
+                }
+                ListView {   // feed: turns in-game, chat pre-game
+                    id: feed; Layout.fillWidth: true; Layout.fillHeight: true; clip: true
+                    model: (backend && backend.started) ? root.turns : root.chat
                     onCountChanged: positionViewAtEnd()
                     delegate: Text {
-                        width: chatView.width; wrapMode: Text.WordWrap; font.family: root.mono; font.pixelSize: 13
-                        text: (modelData.name || "?") + "  " + (modelData.text || "")
-                        color: modelData.id === (root.backend ? root.backend.myId : "") ? root.teal : root.fg
+                        width: feed.width; wrapMode: Text.WordWrap; font.family: root.mono; font.pixelSize: 13
+                        text: (modelData.dir !== undefined)
+                              ? ("✓ " + (modelData.name || "?") + " · " + modelData.guess + " · " + root.dirName(modelData.dir))
+                              : ((modelData.name || "?") + "  " + (modelData.text || ""))
+                        color: modelData.dir === 1 ? "#7ef0c4" : (modelData.dir !== undefined ? root.teal : root.fg)
                     }
                 }
-                RowLayout {
+                RowLayout {   // input: guess (in-game player) or chat
                     Layout.fillWidth: true; spacing: 8
-                    TextField {
-                        id: chatInput; Layout.fillWidth: true
-                        placeholderText: "message the room…"; color: root.fg; font.family: root.mono
-                        background: Rectangle { color: "#0f1614"; border.color: "#1c2622"; radius: 4 }
-                        onAccepted: { if (backend) backend.sendChat(text); text = "" }
+                    Text {
+                        visible: backend && backend.started && backend.isCreator
+                        text: "you sealed the number — waiting for guesses…"
+                        color: root.dim; font.family: root.mono; font.pixelSize: 12
                     }
-                    GButton { text: "Send"; onClicked: { if (backend) backend.sendChat(chatInput.text); chatInput.text = "" } }
+                    TextField {
+                        id: inputField; Layout.fillWidth: true
+                        visible: !(backend && backend.started && backend.isCreator)
+                        enabled: !(backend && backend.won)
+                        placeholderText: (backend && backend.started) ? "your guess 0–1,000,000…" : "message the room…"
+                        color: root.fg; font.family: root.mono
+                        background: Rectangle { color: "#0f1614"; border.color: "#1c2622"; radius: 4 }
+                        onAccepted: { root.submitInput(text); text = "" }
+                    }
+                    GButton {
+                        visible: !(backend && backend.started && backend.isCreator)
+                        text: (backend && backend.started) ? "Guess" : "Send"
+                        enabled: !(backend && backend.won)
+                        onClicked: { root.submitInput(inputField.text); inputField.text = "" }
+                    }
                 }
             }
 
@@ -182,9 +224,14 @@ Rectangle {
                     onClicked: backend && backend.startGame()
                 }
                 Text {
-                    visible: backend && backend.started
-                    text: "game started — turns view next (C)"; color: root.teal; font.family: root.mono; font.pixelSize: 12; wrapMode: Text.WordWrap
+                    visible: backend && backend.started && !backend.won
+                    text: "guessing in progress…"; color: root.teal; font.family: root.mono; font.pixelSize: 12; wrapMode: Text.WordWrap
                     Layout.fillWidth: true
+                }
+                Text {
+                    visible: backend && backend.won
+                    text: "★ " + (backend ? backend.winnerName : "") + " won"; color: "#7ef0c4"
+                    font.family: root.mono; font.pixelSize: 13; wrapMode: Text.WordWrap; Layout.fillWidth: true
                 }
             }
         }

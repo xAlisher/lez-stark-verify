@@ -13,6 +13,11 @@ class ZkGuessGame
     PROP(QString rosterJson="[]" READONLY)            // [{id,name,role,online}] TTL-pruned
     PROP(QString chatJson="[]" READONLY)              // [{id,name,text,ts}]
     PROP(bool    started=false READONLY)              // game master pressed Start
+    PROP(QString sealedCommitment="" READONLY)        // C = SHA256(secret‖blind), broadcast at start
+    PROP(QString turnsJson="[]" READONLY)             // [{by,name,guess,dir,proven}]
+    PROP(bool    won=false READONLY)
+    PROP(QString winnerName="" READONLY)
+    PROP(int     secretRevealed=-1 READONLY)          // the number, revealed on win
     PROP(QString lastError="" READONLY)
 
     SIGNAL(activity(QString line))                    // human-readable log line
@@ -20,6 +25,7 @@ class ZkGuessGame
     SLOT(QString createRoom(QString roomName, QString displayName))   // → generates the code, hosts
     SLOT(QString joinRoom(QString code, QString displayName))          // → derive topic, subscribe, announce
     SLOT(QString sendChat(QString text))
-    SLOT(QString startGame())                          // creator only; needs ≥2 players
+    SLOT(QString startGame())                          // creator only; needs ≥2 players — seals a number
+    SLOT(QString submitGuess(int guess))               // broadcast a guess; host proves + broadcasts the verdict
     SLOT(QString leaveRoom())
 }
