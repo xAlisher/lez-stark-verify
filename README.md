@@ -102,6 +102,11 @@ URL + auth, supplied via env.
   `delivery_module` (auto-resolved). The STARK prover **and** the on-zone `settle-win` binary are
   bundled in the `.lgx`, so real settlement works out of the box.
 
+**macOS (Apple Silicon / darwin-arm64)** — `zk_guess_game v0.1.1`, ✓ Signed by xAlisher:
+- Download `zk_guess_game-0.1.1-darwin-arm64.lgx` from the same release above and install it the same
+  way. Same bundled prover + `settle-win`. Build recipe:
+  [`module/zk-guess-game/docs/MACOS-BUILD-PROTOCOL.md`](module/zk-guess-game/docs/MACOS-BUILD-PROTOCOL.md).
+
 **Build from source:**
 ```
 cd module/zk-guess-game
