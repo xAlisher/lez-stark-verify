@@ -22,6 +22,18 @@ The guest hashes with `risc0_zkvm::sha::Impl` (SHA-256, accelerated); the host c
 `sha2::Sha256`. Both are SHA-256 and **must produce the identical 32-byte digest** for the
 commitment-open to pass. If check #1 fails on "commitment mismatch," this parity is the suspect.
 
+## CLI — `zk-verify` (issue #12; what the M3 backend drives)
+```
+zk-verify seal <secret> <blind>                      # -> commitment hex
+zk-verify prove-turn <secret> <blind> <guess> [out]  # host-side: prove a turn -> receipt
+zk-verify verify <receipt>                           # -> JSON {valid,commitment,guess,dir,dir_str}
+zk-verify gen <dir>                                  # -> valid.receipt + tampered.receipt fixtures
+```
+`verify` is **pure** (in-process STARK check, no prover) → small, bundle-able in the `.lgx`, runs
+on-node in ms. `prove-turn`/`gen` need the prover (host-side, ~8s). Bundled fixtures live in
+[`fixtures/`](fixtures/). The module backend calls `verify <receipt>` via `QProcess` and parses
+the JSON — the same pattern already live in `zk_eligibility_ui`.
+
 ## The 4 ways (same rigor as the original)
 1. valid turn receipt verifies against the image id
 2. the **secret is absent** from the journal (journal = `(commitment, guess, dir)` only)

@@ -77,6 +77,35 @@ to this backend) and settlement (M4 pot on LEZ) — no open cryptographic risk i
 
 ---
 
+## #12 — `zk-verify` CLI + fixtures  ✅ PASS
+
+The CLI the M3 backend drives. All subcommands exercised:
+
+```
+$ zk-verify seal 573118 12648430
+9322c0b129bbe81cd2a088bc28a3010e551b027bd12ddf749a7b05c20a3c059c        # == M1/M2 commitment ✓
+
+$ zk-verify prove-turn 573118 12648430 600000 turn.receipt              # host-side prove
+$ zk-verify verify turn.receipt
+{"commitment":"9322…059c","dir":2,"dir_str":"ABOVE","guess":600000,"valid":true}
+
+$ zk-verify gen fixtures                                                # -> valid + tampered
+$ zk-verify verify fixtures/valid.receipt
+{"commitment":"9322…059c","dir":2,"dir_str":"ABOVE","guess":600000,"valid":true}
+$ zk-verify verify fixtures/tampered.receipt
+{"commitment":"","dir":255,"dir_str":"?","guess":0,"valid":false}
+```
+
+- **`verify` is pure** (in-process STARK check, no prover) → bundle-able in the module `.lgx`,
+  runs on-node in ms — the exact `QProcess → verify → parse JSON` seam already live in
+  `zk_eligibility_ui`.
+- **Fixtures** `module/zk-guess/fixtures/{valid,tampered}.receipt` (221 KB each) — the module
+  ships these so the UI has a real proof to verify and a tampered one to reject, no prover needed
+  on the user's machine.
+- The `seal` commitment matches M1/M2 byte-for-byte → the CLI, harness, and game agree.
+
+---
+
 ## Space discipline
 Root `/` held at **14G free / 82%** across both builds; all growth (build target, risc0
 toolchain, proof segments) landed on `/extra` (163G free), crate cache on `/data`. Nothing
