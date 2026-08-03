@@ -2,6 +2,7 @@
 #include "station_crypto.h"
 
 #include <QTimer>
+#include <QDebug>
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -155,19 +156,38 @@ void ZkGuessGameBackend::announcePresence()
 
 void ZkGuessGameBackend::ingest(const QVariant& payload)
 {
-    const QByteArray env = QByteArray::fromBase64(payload.toString().toUtf8());
-    const QString envStr = QString::fromUtf8(env);
-    if (!StationCrypto::isEnvelope(envStr)) return;
-    QByteArray plain;
-    if (!StationCrypto::decryptAnnounce(m_key, envStr, m_seg, plain)) return;
-    const QJsonObject o = QJsonDocument::fromJson(plain).object();
+    // Robust decode (receiver's proven path): the payload may arrive base64 OR raw JSON — try both.
+    QByteArray json;
+    const QString asStr = payload.toString();
+    if (!asStr.isEmpty()) {
+        const QByteArray b = QByteArray::fromBase64(asStr.toUtf8());
+        if (!b.isEmpty() && b.trimmed().startsWith('{')) json = b;
+        else if (asStr.trimmed().startsWith('{'))        json = asStr.toUtf8();
+    }
+    if (json.isEmpty()) {
+        const QByteArray raw = payload.toByteArray();
+        if (raw.trimmed().startsWith('{')) json = raw;
+    }
+    if (json.isEmpty()) return;
+
+    // encrypted announce → decrypt with the room key (AAD = topic segment); fail closed.
+    if (StationCrypto::isEnvelope(QString::fromUtf8(json))) {
+        QByteArray plain;
+        if (!StationCrypto::decryptAnnounce(m_key, QString::fromUtf8(json), m_seg, plain)) return;
+        json = plain;
+    }
+    const QJsonObject o = QJsonDocument::fromJson(json).object();
     const QString t = o.value("t").toString();
     const QString id = o.value("id").toString();
     if (id.isEmpty() || id == m_myId) return;   // ignore self-echo
 
     if (t == QLatin1String("presence")) {
         m_players[id] = { o.value("name").toString(), o.value("role").toString(), nowMs() };
-        if (isCreator() && roomName().isEmpty()) {} // creator keeps its own room name
+        if (!isCreator() && roomName().isEmpty()) {           // joiner learns the room name from the host
+            const QString rn = o.value("room").toString();
+            if (!rn.isEmpty()) setRoomName(rn);
+        }
+        qDebug() << "zk_guess_game: presence from" << id << o.value("name").toString() << "roster now" << m_players.size();
         publishRoster();
     } else if (t == QLatin1String("chat")) {
         QJsonObject m{{"id",id},{"name",o.value("name").toString()},

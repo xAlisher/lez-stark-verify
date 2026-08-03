@@ -18,6 +18,20 @@ Rectangle {
 
     property var roster: []
     property var chat: []
+    function statusColor(s) { return s === "connected" ? teal : (s === "connecting" ? amber : dim) }
+
+    // reusable delivery/Logos status pill (booth/receiver style)
+    component StatusPill : Rectangle {
+        property string status: "idle"
+        radius: 10; color: "#0f1614"; border.color: "#1c2622"
+        implicitHeight: 22; implicitWidth: pr.implicitWidth + 16
+        Row {
+            id: pr; anchors.centerIn: parent; spacing: 6
+            Rectangle { width: 7; height: 7; radius: 4; anchors.verticalCenter: parent.verticalCenter
+                        color: root.statusColor(status) }
+            Text { text: "delivery: " + status; color: root.dim; font.family: root.mono; font.pixelSize: 12 }
+        }
+    }
     function refresh() {
         try { roster = JSON.parse(backend ? backend.rosterJson : "[]") } catch(e) { roster = [] }
         try { chat   = JSON.parse(backend ? backend.chatJson   : "[]") } catch(e) { chat = [] }
@@ -71,6 +85,13 @@ Rectangle {
         }
     }
 
+    // lobby status pill (top-right)
+    StatusPill {
+        visible: !backend || !backend.inRoom
+        status: backend ? backend.connectionStatus : "idle"
+        anchors.top: parent.top; anchors.right: parent.right; anchors.margins: 14
+    }
+
     // ── ROOM ────────────────────────────────────────────────────────────────
     ColumnLayout {
         anchors.fill: parent; anchors.margins: 14; spacing: 10
@@ -79,13 +100,15 @@ Rectangle {
         RowLayout {
             Layout.fillWidth: true; spacing: 12
             Text { text: "⌗ " + (backend ? backend.roomName : ""); color: root.teal; font.family: root.mono; font.pixelSize: 15; font.bold: true }
-            Text {
-                visible: backend && backend.isCreator
-                text: "· invite code " + (backend ? backend.roomCode : "")
-                color: root.amber; font.family: root.mono; font.pixelSize: 13
+            RowLayout {
+                visible: backend && backend.isCreator; spacing: 6
+                Text { text: "· invite code " + (backend ? backend.roomCode : ""); color: root.amber; font.family: root.mono; font.pixelSize: 13 }
+                TextEdit { id: codeClip; visible: false; text: backend ? backend.roomCode : "" }
+                Button { text: "⧉ copy"; padding: 4; font.family: root.mono
+                         onClicked: { codeClip.selectAll(); codeClip.copy() } }
             }
             Item { Layout.fillWidth: true }
-            Text { text: backend ? backend.connectionStatus : ""; color: root.dim; font.family: root.mono; font.pixelSize: 12 }
+            StatusPill { status: backend ? backend.connectionStatus : "idle" }
             Button { text: "leave"; onClicked: backend && backend.leaveRoom() }
         }
         Rectangle { Layout.fillWidth: true; height: 1; color: "#1c2622" }
