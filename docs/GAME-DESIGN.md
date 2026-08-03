@@ -103,20 +103,32 @@ _This is the on-zone core (EPIC F). Proven on Sneg; **not yet wired into the roo
   winner=100. (`docs/epic-d-pot.md`.)
 
 ## Deployment & requirements — "does it work from the catalog?"
-**Short answer: the GAME works out of the box; the per-turn STARK proof + on-LEZ + pot do NOT (yet).**
+**Short answer: the GAME works out of the box; the per-turn STARK proof + on-zone settlement need a
+prover (bundled or hosted) — but there IS a public sequencer, so no self-hosting.**
+
+**Public endpoints (no self-hosting):**
+- **Delivery** — the public `logos.dev` Waku network (rooms/chat/turns). Zero config.
+- **LEZ sequencer** — **`https://testnet.lez.logos.co`** is a **live, hosted** LEZ testnet sequencer
+  (responding, ~block 48.5k). **⚠ Version wall:** our program + wallet are built at LEZ rev
+  `787a15aa` (which our **Sneg** sequencer runs and accepts — a guess turn settled in block 100),
+  but a real-mode submit to the public testnet returns **`MethodNotFound`** — its RPC is a
+  *different* LEZ version than ours. So on-zone settlement needs **either** rebuilding our
+  `zk-guess-program` + wallet against the **testnet's** LEZ rev (identify + match), **or** keep the
+  version-matched **Sneg** (private) sequencer. The public endpoint exists; the version match is the
+  open deployment step.
 
 | Feature | Works via catalog install? | Needs |
 |---|---|---|
-| Lobby, rooms **by code**, roster, chat, entropy, **turns**, guessing, **client-verified win** | ✅ **Yes — zero settings** | just the `delivery_module` dep (auto-bundled). Runs over the public logos.dev delivery network. No node, no sequencer, no config. |
-| **Per-turn `verified on LEZ ✓` STARK proof** | ❌ **No (falls back to native/unverified)** | the host runs `zk-verify prove-turn`, resolved via `ZK_VERIFY_BIN` or `~/.local/share/zk-guess/zk-verify` — **not bundled**. To ship: bundle `zk-verify` (~44 MB) **+ the RISC0 `r0vm` runtime** in the `.lgx`, or point at a hosted **prover service**. Without it, the game still plays; verdicts show `(unverified)`. |
-| **On-LEZ per-turn settlement** (sequencer) | ❌ not wired into the room yet | a reachable **`sequencer_service :3040`** endpoint (`NSSA_SEQUENCER_URL`). Today only my **private Sneg** box runs one — a **public/hosted LEZ testnet sequencer** is needed for catalog users. |
-| **TOK pot / staking** | ❌ not wired into the room yet | a LEZ wallet + faucet + a reachable sequencer (same endpoint question). |
+| Lobby, rooms **by code**, roster, chat, entropy, **turns**, guessing, **client-verified win** | ✅ **Yes — zero settings** | just `delivery_module` (auto-bundled); public logos.dev network |
+| **Per-turn `verified on LEZ ✓`** | ⚠ needs a prover | the host runs `zk-verify prove-turn` — needs `zk-verify` (~43 MB) **+ r0vm (~104 MB)**. Options: **(a) bundle** both in the `.lgx` (~150 MB, dev-mode local proof, fast), or **(b) a hosted prover service**. Without it, verdicts show `(unverified)` and the game still plays. |
+| **On-zone settlement** (win + pot) on the **public** sequencer | ⚠ endpoint live but **version-mismatched** | `testnet.lez.logos.co` returns `MethodNotFound` for our rev-`787a15aa` submit → rebuild our program+wallet to the testnet's LEZ rev, or use version-matched **Sneg**. Then settle *infrequent* events (win + pot) on-zone (real STARK ~minutes, fine when infrequent); keep **per-turn** proofs fast (dev-mode local / prover service). |
+| **TOK pot / staking** | ⚠ wire-up | LEZ wallet + `pinata` faucet + the public sequencer (all available); the vault pot flow is proven (EPIC D). |
 
-**So, honestly:** a catalog user gets a **fully playable, provably-fair-by-commitment, networked
-multiplayer game with zero configuration** — but the *per-turn STARK* and the *on-zone/pot* layers
-need (a) bundling the prover+runtime or a prover service, and (b) a **publicly hosted sequencer**
-(Sneg is private). Those are the deployment items to close before the "verified on LEZ" and the
-staked pot are real for anyone who installs it.
+**Recommended deployment architecture:** rooms/chat/turns on public delivery (zero-config); **per-turn
+proof fast** (dev-mode local prover — bundle it, or a hosted prover service); **win + pot settle
+on-zone** against the public `testnet.lez.logos.co` (real STARK, but infrequent so the minutes-scale
+proving is fine). This gives real "on LEZ" value where it counts (the settlement) without making
+every turn wait on a heavy proof.
 
 ## Repo & build
 - This module: `module/zk-guess-game/` (universal ui_qml, module-builder master). Build:
