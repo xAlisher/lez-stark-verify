@@ -1,0 +1,34 @@
+{
+  "name": "zk_guess_game",
+  "version": "0.1.0",
+  "type": "ui_qml",
+  "interface": "universal",
+  "category": "game",
+  "description": "ZK Guess — a provably-fair number-guessing party game. Create or join a room by code over Logos Messaging; the machine proves above/below without revealing the number.",
+  "main": "zk_guess_game_plugin",
+  "view": "qml/Main.qml",
+  "icon": "qml/icon.png",
+  "dependencies": [
+    "delivery_module"
+  ],
+  "codegen": {
+    "rep": "src/zk_guess_game.rep"
+  },
+  "nix": {
+    "packages": {
+      "build": [
+        "pkg-config"
+      ],
+      "runtime": [
+        "libsodium"
+      ]
+    },
+    "external_libraries": [],
+    "cmake": {
+      "find_packages": [],
+      "extra_sources": [],
+      "extra_include_dirs": [],
+      "extra_link_libraries": []
+    }
+  }
+}

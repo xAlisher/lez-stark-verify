@@ -1,0 +1,25 @@
+// Qt Remote Objects contract for the ZK Guess game backend (EPIC A — rooms).
+// PROPs auto-sync to QML; SIGNALs via Connections{target:backend}; SLOTs called directly.
+// Room transport = a StationCrypto code→delivery content-topic; presence = announce/heartbeat/TTL.
+class ZkGuessGame
+{
+    PROP(QString connectionStatus="idle" READONLY)   // idle|connecting|connected
+    PROP(bool    nodeReady=false READONLY)
+    PROP(QString roomCode="" READONLY)                // the invite code (creator shows it)
+    PROP(QString roomName="" READONLY)
+    PROP(bool    inRoom=false READONLY)
+    PROP(bool    isCreator=false READONLY)
+    PROP(QString myId="" READONLY)                    // my ephemeral player id
+    PROP(QString rosterJson="[]" READONLY)            // [{id,name,role,online}] TTL-pruned
+    PROP(QString chatJson="[]" READONLY)              // [{id,name,text,ts}]
+    PROP(bool    started=false READONLY)              // game master pressed Start
+    PROP(QString lastError="" READONLY)
+
+    SIGNAL(activity(QString line))                    // human-readable log line
+
+    SLOT(QString createRoom(QString roomName, QString displayName))   // → generates the code, hosts
+    SLOT(QString joinRoom(QString code, QString displayName))          // → derive topic, subscribe, announce
+    SLOT(QString sendChat(QString text))
+    SLOT(QString startGame())                          // creator only; needs ≥2 players
+    SLOT(QString leaveRoom())
+}
