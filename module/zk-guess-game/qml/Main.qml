@@ -177,28 +177,38 @@ Rectangle {
                         color: modelData.dir === 1 ? "#7ef0c4" : (modelData.dir !== undefined ? root.teal : root.fg)
                     }
                 }
-                RowLayout {   // input: guess (in-game player) or chat
+                RowLayout {   // pre-game: chat input
                     Layout.fillWidth: true; spacing: 8
-                    Text {
-                        visible: backend && backend.started && backend.isCreator
-                        text: "you sealed the number — waiting for guesses…"
-                        color: root.dim; font.family: root.mono; font.pixelSize: 12
-                    }
+                    visible: !(backend && backend.started)
                     TextField {
-                        id: inputField; Layout.fillWidth: true
-                        visible: !(backend && backend.started && backend.isCreator)
-                        enabled: !(backend && backend.won)
-                        placeholderText: (backend && backend.started) ? "your guess 0–1,000,000…" : "message the room…"
-                        color: root.fg; font.family: root.mono
+                        id: chatInput; Layout.fillWidth: true
+                        placeholderText: "message the room…"; color: root.fg; font.family: root.mono
                         background: Rectangle { color: "#0f1614"; border.color: "#1c2622"; radius: 4 }
-                        onAccepted: { root.submitInput(text); text = "" }
+                        onAccepted: { if (backend) backend.sendChat(text); text = "" }
                     }
-                    GButton {
-                        visible: !(backend && backend.started && backend.isCreator)
-                        text: (backend && backend.started) ? "Guess" : "Send"
-                        enabled: !(backend && backend.won)
-                        onClicked: { root.submitInput(inputField.text); inputField.text = "" }
+                    GButton { text: "Send"; onClicked: { if (backend) backend.sendChat(chatInput.text); chatInput.text = "" } }
+                }
+                Text {   // in-game host
+                    visible: backend && backend.started && backend.isCreator && !backend.won
+                    text: "you sealed the number — waiting for guesses…"
+                    color: root.dim; font.family: root.mono; font.pixelSize: 12
+                }
+                RowLayout {   // in-game player: slide within the known range, then Guess
+                    Layout.fillWidth: true; spacing: 10
+                    visible: backend && backend.started && !backend.isCreator && !backend.won
+                    Text { text: root.rangeLo(); color: root.dim; font.family: root.mono; font.pixelSize: 12 }
+                    Slider {
+                        id: guessSlider; Layout.fillWidth: true
+                        from: root.rangeLo(); to: Math.max(root.rangeLo(), root.rangeHi()); stepSize: 1
+                        Component.onCompleted: value = Math.round((root.rangeLo() + root.rangeHi()) / 2)
+                        Connections {   // re-center on each new verdict (the narrowed midpoint = the optimal next guess)
+                            target: root.backend; enabled: root.backend !== null; ignoreUnknownSignals: true
+                            function onTurnsJsonChanged() { guessSlider.value = Math.round((root.rangeLo() + root.rangeHi()) / 2) }
+                        }
                     }
+                    Text { text: root.rangeHi(); color: root.dim; font.family: root.mono; font.pixelSize: 12 }
+                    Text { text: "→ " + Math.round(guessSlider.value); color: root.teal; font.family: root.mono; font.pixelSize: 15; font.bold: true }
+                    GButton { text: "Guess"; onClicked: backend && backend.submitGuess(Math.round(guessSlider.value)) }
                 }
             }
 
