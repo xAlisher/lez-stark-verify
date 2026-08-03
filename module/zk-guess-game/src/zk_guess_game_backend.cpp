@@ -30,6 +30,7 @@ qint64 nowMs() { return QDateTime::currentMSecsSinceEpoch(); }
 ZkGuessGameBackend::ZkGuessGameBackend(QObject* parent)
     : ZkGuessGameSimpleSource(parent)
 {
+    StationCrypto::init();   // sodium_init (idempotent) before any KDF/AEAD
     m_myId = randomId();
     setMyId(m_myId);
 }
@@ -141,7 +142,7 @@ void ZkGuessGameBackend::sendEnvelope(const QJsonObject& obj)
     const QByteArray plain = QJsonDocument(obj).toJson(QJsonDocument::Compact);
     const QString env = StationCrypto::encryptAnnounce(m_key, plain, m_seg);
     if (env.isEmpty()) return;
-    modules().delivery_module.sendAsync(m_topic, env, [](LogosResult){}, Timeout());
+    modules().delivery_module.sendAsync(m_topic, env.toUtf8(), [](LogosResult){}, Timeout());
 }
 
 void ZkGuessGameBackend::announcePresence()
@@ -158,7 +159,7 @@ void ZkGuessGameBackend::ingest(const QVariant& payload)
     const QString envStr = QString::fromUtf8(env);
     if (!StationCrypto::isEnvelope(envStr)) return;
     QByteArray plain;
-    if (!StationCrypto::decryptAnnounce(m_key, envStr, plain)) return;
+    if (!StationCrypto::decryptAnnounce(m_key, envStr, m_seg, plain)) return;
     const QJsonObject o = QJsonDocument::fromJson(plain).object();
     const QString t = o.value("t").toString();
     const QString id = o.value("id").toString();
