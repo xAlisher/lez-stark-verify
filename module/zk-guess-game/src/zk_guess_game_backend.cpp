@@ -526,6 +526,12 @@ QString ZkGuessGameBackend::settleOnLez()
     if (QFileInfo::exists(r0vm)) penv.insert(QStringLiteral("RISC0_SERVER_PATH"), r0vm);
     if (!penv.contains(QStringLiteral("NSSA_SEQUENCER_URL")))
         penv.insert(QStringLiteral("NSSA_SEQUENCER_URL"), QStringLiteral("https://sequencer.logos.live"));
+    // Hand the real game's win to settle-win: it re-seals the commitment and submits the winning
+    // guess (== the sealed number → proves EQUAL) on-zone. sequencer.logos.live is un-gated, so no
+    // SEQ_BASIC_AUTH needed; if the sequencer is re-gated, set SEQ_BASIC_AUTH in the launch env.
+    penv.insert(QStringLiteral("ZKG_SECRET"), QString::number(m_secret));
+    penv.insert(QStringLiteral("ZKG_BLIND"),  QString::number(m_blind));
+    penv.insert(QStringLiteral("ZKG_GUESS"),  QString::number(m_secret));  // winning guess = the sealed number
 
     // Cap the prover — ZK proving is embarrassingly parallel and will grab EVERY core (r0vm hit
     // ~1400% CPU / load 18). RAYON_NUM_THREADS bounds r0vm's rayon pool; default to HALF the cores so
