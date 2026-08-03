@@ -120,7 +120,7 @@ prover (bundled or hosted) — but there IS a public sequencer, so no self-hosti
 | Feature | Works via catalog install? | Needs |
 |---|---|---|
 | Lobby, rooms **by code**, roster, chat, entropy, **turns**, guessing, **client-verified win** | ✅ **Yes — zero settings** | just `delivery_module` (auto-bundled); public logos.dev network |
-| **Per-turn `verified on LEZ ✓`** | ⚠ needs a prover | the host runs `zk-verify prove-turn` — needs `zk-verify` (~43 MB) **+ r0vm (~104 MB)**. Options: **(a) bundle** both in the `.lgx` (~150 MB, dev-mode local proof, fast), or **(b) a hosted prover service**. Without it, verdicts show `(unverified)` and the game still plays. |
+| **Per-turn `verified on LEZ ✓`** | ✅ **bundled** (linux-amd64) | the host runs `zk-verify prove-turn` — needs `zk-verify` (~43 MB) **+ r0vm (~104 MB)**. **Both are now bundled into the `.lgx`** (82 MB gzipped): the backend resolves them next to its own plugin `.so` (`dladdr`) and sets `RISC0_SERVER_PATH` to the sibling `r0vm` — no `rzup` / `ZK_VERIFY_BIN` / PATH r0vm. Dev-mode local proof, fast. If the binaries are absent it falls back to `(unverified)` and the game still plays. |
 | **On-zone settlement** (win + pot) on the **public** sequencer | ⚠ endpoint live but **version-mismatched** | `testnet.lez.logos.co` returns `MethodNotFound` for our rev-`787a15aa` submit → rebuild our program+wallet to the testnet's LEZ rev, or use version-matched **Sneg**. Then settle *infrequent* events (win + pot) on-zone (real STARK ~minutes, fine when infrequent); keep **per-turn** proofs fast (dev-mode local / prover service). |
 | **TOK pot / staking** | ⚠ wire-up | LEZ wallet + `pinata` faucet + the public sequencer (all available); the vault pot flow is proven (EPIC D). |
 
@@ -130,9 +130,18 @@ on-zone** against the public `testnet.lez.logos.co` (real STARK, but infrequent 
 proving is fine). This gives real "on LEZ" value where it counts (the settlement) without making
 every turn wait on a heavy proof.
 
+**Bundling the prover (linux-amd64):** the logos module-builder's portable bundler assembles the
+`.lgx` variant from the plugin `.so` + its `ldd`-traced deps only — a flake `postInstall` that drops
+files in `$out` is filtered out. So the 147 MB prover is injected **post-build** by
+`module/zk-guess-game/tools/bundle-prover-into-lgx.sh` (repack the `.lgx`, sha256-pinned;
+`PROVER_DIR` local or `PROVER_URL` release assets). The clean flake-native path needs an extra-files
+hook in `nix-bundle-logos-module-install` (upstream ask). A catalog release must run this repack step
+(or that upstream hook) for the shipped `.lgx` to carry the prover.
+
 ## Repo & build
 - This module: `module/zk-guess-game/` (universal ui_qml, module-builder master). Build:
-  `nix build '.#lgx-portable'`. Install into Basecamp; needs the `delivery_module`.
+  `nix build '.#lgx-portable'`, then `tools/bundle-prover-into-lgx.sh <built.lgx>` to bundle the
+  prover. Install into Basecamp; needs the `delivery_module`.
 - STARK engine: `module/zk-guess/` (`cargo run` proves 4-ways; `zk-verify` CLI).
 - On-LEZ: `module/zk-guess-lez/` + the sequencer on Sneg (see `docs/epic-f-onlez-design.md`,
   `docs/epic-d-pot.md`, and the memory `lez-sequencer-on-sneg`).
