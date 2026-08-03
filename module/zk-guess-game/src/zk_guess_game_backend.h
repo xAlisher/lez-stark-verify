@@ -7,6 +7,8 @@
 #include <QJsonArray>
 
 #include "rep_zk_guess_game_source.h"     // ZkGuessGameSimpleSource (repc from src/zk_guess_game.rep)
+#include "logos_sdk.h"                    // LogosModules (full def) + typed modules().delivery_module
+#include "logos_types.h"                  // LogosResult, Timeout
 #include "logos_ui_plugin_context.h"      // LogosUiPluginContext: modules() + onContextReady()
 
 class QTimer;
