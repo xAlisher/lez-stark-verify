@@ -15,6 +15,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QRegularExpression>
 
 #include <dlfcn.h>   // dladdr — resolve the plugin's own .so dir so bundled tools sit beside it
 
@@ -263,6 +264,8 @@ void ZkGuessGameBackend::ingest(const QVariant& payload)
         setStarted(true);
         log(QStringLiteral("host sealed a number — start guessing"));
     } else if (t == QLatin1String("guess")) {
+        setProvingName(o.value("name").toString());     // all clients: show the per-turn proving spinner
+        setProvingGuess(o.value("guess").toInt());
         if (isCreator()) {   // only the host holds the secret → it proves the turn on zk-verify
             proveGuess(o.value("guess").toInt(), o.value("name").toString());
         }
@@ -404,6 +407,7 @@ QString ZkGuessGameBackend::submitGuess(int guess)
     if (currentTurnId() != m_myId) return QStringLiteral("not your turn");
     if (guess < 0 || guess > 1000000) return QStringLiteral("enter 0–1,000,000");
     sendEnvelope(QJsonObject{{"t","guess"},{"id",m_myId},{"name",m_display},{"guess",guess}});
+    setProvingName(m_display); setProvingGuess(guess);   // show my own proving spinner (no self-echo)
     return QString();
 }
 
@@ -412,6 +416,7 @@ void ZkGuessGameBackend::addTurn(int guess, int dir, const QString& byName, bool
     m_turns.append(QJsonObject{{"name",byName},{"guess",guess},{"dir",dir},{"proven",proven},
                                {"ts",double(nowMs())},{"kind","turn"}});
     setTurnsJson(QString::fromUtf8(QJsonDocument(m_turns).toJson(QJsonDocument::Compact)));
+    setProvingName(QString()); setProvingGuess(-1);   // verdict resolved → clear the proving spinner
 }
 
 QString ZkGuessGameBackend::zkVerifyBin() const
@@ -481,6 +486,58 @@ void ZkGuessGameBackend::proveGuess(int guess, const QString& byName)
                        QString::number(guess), out});
 }
 
+// Winner settles the win on-zone with a REAL STARK (the ~16min proof) against our public
+// sequencer — non-blocking: the win screen already shows the winner; this runs in the background
+// and lands a real block. Config comes from ENV (never shipped in the module): NSSA_SEQUENCER_URL
+// (default sequencer.logos.live), SEQ_BASIC_AUTH, and a settle binary (env SETTLE_BIN or bundled
+// beside the plugin as "settle-win"). r0vm = the bundled sibling. RISC0_DEV_MODE is cleared → real.
+QString ZkGuessGameBackend::settleOnLez()
+{
+    if (!won())      return QStringLiteral("nothing to settle yet");
+    if (settling())  return QStringLiteral("already settling");
+
+    QString bin = qEnvironmentVariable("SETTLE_BIN");
+    if (bin.isEmpty() || !QFileInfo::exists(bin)) {
+        const QString bundled = pluginDir() + QStringLiteral("/settle-win");
+        if (!pluginDir().isEmpty() && QFileInfo::exists(bundled)) bin = bundled;
+    }
+    if (bin.isEmpty() || !QFileInfo::exists(bin)) {
+        setSettleError(QStringLiteral("on-zone settlement not configured (no settle binary)"));
+        return QStringLiteral("settlement not configured");
+    }
+
+    setSettleError(QString()); setSettleBlock(-1);
+    setSettling(true); setSettleStartMs(double(nowMs()));
+
+    const QString home = QDir::tempPath() + QStringLiteral("/zkg-settle-%1").arg(nowMs());
+    QDir().mkpath(home);
+    QProcessEnvironment penv = QProcessEnvironment::systemEnvironment();
+    penv.remove(QStringLiteral("RISC0_DEV_MODE"));                 // REAL mode for on-zone settlement
+    penv.insert(QStringLiteral("LEE_WALLET_HOME_DIR"), home);
+    const QString r0vm = QFileInfo(bin).absolutePath() + QStringLiteral("/r0vm");
+    if (QFileInfo::exists(r0vm)) penv.insert(QStringLiteral("RISC0_SERVER_PATH"), r0vm);
+    if (!penv.contains(QStringLiteral("NSSA_SEQUENCER_URL")))
+        penv.insert(QStringLiteral("NSSA_SEQUENCER_URL"), QStringLiteral("https://sequencer.logos.live"));
+
+    auto* p = new QProcess(this);
+    p->setProcessEnvironment(penv);
+    p->setProcessChannelMode(QProcess::MergedChannels);
+    connect(p, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
+            [this, p](int code, QProcess::ExitStatus) {
+        const QString out = QString::fromUtf8(p->readAll());
+        p->deleteLater();
+        setSettling(false);
+        QRegularExpression re(QStringLiteral("block\\s+(\\d+)"));   // last "block N" = the inclusion block
+        int blk = -1; auto it = re.globalMatch(out);
+        while (it.hasNext()) blk = it.next().captured(1).toInt();
+        if (code == 0 && blk >= 0) setSettleBlock(blk);
+        else setSettleError(code == 0 ? QStringLiteral("settled but no block parsed")
+                                      : QStringLiteral("settlement failed (exit %1)").arg(code));
+    });
+    p->start(bin, {});
+    return QString();
+}
+
 QString ZkGuessGameBackend::leaveRoom()
 {
     if (m_heartbeat) { m_heartbeat->stop(); }
@@ -493,6 +550,8 @@ QString ZkGuessGameBackend::leaveRoom()
     setInRoom(false); setIsCreator(false);
     setCollectingEntropy(false); setEntropySubmitted(false); setStarted(false);
     setWon(false); setWinnerName(QString()); setSecretRevealed(-1);
+    setProvingName(QString()); setProvingGuess(-1);
+    setSettling(false); setSettleStartMs(0); setSettleBlock(-1); setSettleError(QString());
     setSealedCommitment(QString()); setCurrentTurnId(QString()); setCurrentTurnName(QString());
     setRoomCode(QString()); setRoomName(QString());
     setRosterJson("[]"); setChatJson("[]"); setTurnsJson("[]");

@@ -20,9 +20,15 @@ class ZkGuessGame
     PROP(bool    started=false READONLY)              // game in the guess phase
     PROP(QString sealedCommitment="" READONLY)        // C = SHA256(secret‖blind), broadcast after entropy
     PROP(QString turnsJson="[]" READONLY)             // [{by,name,guess,dir,proven}]
+    PROP(QString provingName="" READONLY)             // a guess is being proven now (per-turn STARK) → spinner
+    PROP(int     provingGuess=-1 READONLY)            // the guess under proof (for the loader label)
     PROP(bool    won=false READONLY)
     PROP(QString winnerName="" READONLY)
     PROP(int     secretRevealed=-1 READONLY)          // the number, revealed on win
+    PROP(bool    settling=false READONLY)             // win being settled on-zone (real STARK ~16min) → countdown
+    PROP(double  settleStartMs=0 READONLY)            // when settlement proving began (countdown anchor)
+    PROP(int     settleBlock=-1 READONLY)             // block the settlement landed in (done)
+    PROP(QString settleError="" READONLY)             // settlement failure, if any
     PROP(QString lastError="" READONLY)
 
     SIGNAL(activity(QString line))                    // human-readable log line
@@ -33,5 +39,6 @@ class ZkGuessGame
     SLOT(QString startGame())                          // creator only; needs ≥2 players — opens the entropy phase
     SLOT(QString submitEntropy(QString contribution))  // my mouse-draw randomness → folded into the seal
     SLOT(QString submitGuess(int guess))               // broadcast a guess; host proves + broadcasts the verdict
+    SLOT(QString settleOnLez())                        // winner: settle the win on-zone (real STARK, background)
     SLOT(QString leaveRoom())
 }

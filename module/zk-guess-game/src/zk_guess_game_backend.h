@@ -30,6 +30,7 @@ public:
     QString startGame() override;
     QString submitEntropy(QString contribution) override;
     QString submitGuess(int guess) override;
+    QString settleOnLez() override;
     QString leaveRoom() override;
 
 protected:

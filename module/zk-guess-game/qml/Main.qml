@@ -32,6 +32,22 @@ Rectangle {
         else backend.sendChat(s)
     }
 
+    // ── proving/settling animation state (proto-style braille spinner + live timers) ──
+    readonly property string spinFrames: "⣾⣽⣻⢿⡿⣟⣯⣷"
+    property int  spinIdx: 0
+    property real nowMs: 0
+    readonly property bool proving: backend && backend.provingName !== ""       // per-turn STARK (fast)
+    readonly property bool settling: backend && backend.settling                // on-zone win (real ~16min)
+    readonly property int  SETTLE_ETA: 16 * 60 * 1000                           // ~16 min real proof
+    function clockFmt(ms) { if (ms < 0) ms = 0; var s = Math.floor(ms/1000)
+        return ("0"+Math.floor(s/60)).slice(-2) + ":" + ("0"+(s%60)).slice(-2) }
+    // one ticker drives both spinners; runs only while something is proving.
+    Timer {
+        interval: 90; repeat: true; running: root.proving || root.settling
+        onRunningChanged: if (running) root.nowMs = Date.now()
+        onTriggered: { root.spinIdx = (root.spinIdx + 1) % root.spinFrames.length; root.nowMs = Date.now() }
+    }
+
     // reusable delivery/Logos status pill (booth/receiver style)
     component StatusPill : Rectangle {
         property string status: "idle"
@@ -283,14 +299,24 @@ Rectangle {
                     text: "Start game"; Layout.fillWidth: true
                     onClicked: backend && backend.startGame()
                 }
-                Text {
-                    visible: backend && backend.started && !backend.won
-                    text: "guessing in progress…"; color: root.teal; font.family: root.mono; font.pixelSize: 12; wrapMode: Text.WordWrap
-                    Layout.fillWidth: true
+                // per-turn STARK proving — proto's amber braille spinner + live elapsed
+                RowLayout {
+                    visible: root.proving && backend && !backend.won
+                    Layout.fillWidth: true; spacing: 7
+                    Text { text: root.spinFrames.charAt(root.spinIdx); color: root.amber
+                           font.family: root.mono; font.pixelSize: 15; font.bold: true }
+                    Text {
+                        Layout.fillWidth: true; wrapMode: Text.WordWrap
+                        text: "proving " + (backend ? backend.provingName : "") + "'s guess "
+                              + (backend && backend.provingGuess >= 0 ? backend.provingGuess : "")
+                              + " — verifying on LEZ"
+                        color: root.amber; font.family: root.mono; font.pixelSize: 12
+                    }
                 }
                 Text {
-                    visible: backend && backend.started && !backend.won
-                    text: "guessing…"; color: root.dim; font.family: root.mono; font.pixelSize: 11; wrapMode: Text.WordWrap; Layout.fillWidth: true
+                    visible: backend && backend.started && !backend.won && !root.proving
+                    text: "waiting for a guess…"; color: root.dim; font.family: root.mono; font.pixelSize: 11
+                    wrapMode: Text.WordWrap; Layout.fillWidth: true
                 }
             }
         }
@@ -387,6 +413,77 @@ Rectangle {
                 color: root.dim; font.family: root.mono; font.pixelSize: 12; wrapMode: Text.WordWrap
                 horizontalAlignment: Text.AlignHCenter; Layout.fillWidth: true
             }
+
+            // ── on-zone settlement (real STARK, ~16 min) — non-blocking, opt-in ──
+            Rectangle {
+                Layout.fillWidth: true; Layout.topMargin: 6
+                radius: 8; color: "#0d1512"; border.color: "#1c2622"
+                implicitHeight: settleCol.implicitHeight + 24
+                ColumnLayout {
+                    id: settleCol
+                    anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter
+                              leftMargin: 14; rightMargin: 14 }
+                    spacing: 8
+
+                    // idle: offer to notarize the win on-zone
+                    ColumnLayout {
+                        visible: backend && backend.settleBlock < 0 && !root.settling && backend.settleError === ""
+                        Layout.fillWidth: true; spacing: 6
+                        Text { text: "Settle this win on the LEZ"; color: root.fg; font.family: root.mono
+                               font.pixelSize: 14; font.bold: true; Layout.alignment: Qt.AlignHCenter }
+                        Text { text: "a real STARK, verified on-zone — takes ~16 min, runs in the background"
+                               color: root.dim; font.family: root.mono; font.pixelSize: 11; wrapMode: Text.WordWrap
+                               horizontalAlignment: Text.AlignHCenter; Layout.fillWidth: true }
+                        GButton { text: "Settle on LEZ"; Layout.alignment: Qt.AlignHCenter
+                                  onClicked: backend && backend.settleOnLez() }
+                    }
+
+                    // settling: braille spinner + countdown + progress
+                    ColumnLayout {
+                        visible: root.settling
+                        Layout.fillWidth: true; spacing: 8
+                        RowLayout {
+                            Layout.alignment: Qt.AlignHCenter; spacing: 9
+                            Text { text: root.spinFrames.charAt(root.spinIdx); color: root.amber
+                                   font.family: root.mono; font.pixelSize: 16; font.bold: true }
+                            Text { text: "settling on LEZ — proving the win"; color: root.amber
+                                   font.family: root.mono; font.pixelSize: 13 }
+                        }
+                        Text {
+                            Layout.alignment: Qt.AlignHCenter
+                            text: "~" + root.clockFmt(root.SETTLE_ETA - (root.nowMs - (backend ? backend.settleStartMs : 0))) + " left"
+                            color: root.fg; font.family: root.mono; font.pixelSize: 20; font.bold: true
+                        }
+                        Rectangle {   // progress bar (elapsed / ETA)
+                            Layout.fillWidth: true; height: 5; radius: 2.5; color: "#1c2622"
+                            Rectangle {
+                                height: parent.height; radius: 2.5; color: root.amber
+                                width: parent.width * Math.max(0, Math.min(1,
+                                    (root.nowMs - (backend ? backend.settleStartMs : 0)) / root.SETTLE_ETA))
+                            }
+                        }
+                        Text { text: "you can leave — the block lands whether or not you watch"
+                               color: root.dim; font.family: root.mono; font.pixelSize: 10
+                               Layout.alignment: Qt.AlignHCenter }
+                    }
+
+                    // settled ✓
+                    Text {
+                        visible: backend && backend.settleBlock >= 0
+                        text: "✓ settled on LEZ — block " + (backend ? backend.settleBlock : "")
+                        color: root.teal; font.family: root.mono; font.pixelSize: 14; font.bold: true
+                        Layout.alignment: Qt.AlignHCenter
+                    }
+                    // error
+                    Text {
+                        visible: backend && backend.settleError !== ""
+                        text: "settlement: " + (backend ? backend.settleError : "")
+                        color: root.red; font.family: root.mono; font.pixelSize: 11; wrapMode: Text.WordWrap
+                        horizontalAlignment: Text.AlignHCenter; Layout.fillWidth: true
+                    }
+                }
+            }
+
             GButton { text: "leave room"; Layout.alignment: Qt.AlignHCenter; onClicked: backend && backend.leaveRoom() }
         }
     }
