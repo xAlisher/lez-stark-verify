@@ -27,6 +27,14 @@ QString randomCode() {
     return c;
 }
 qint64 nowMs() { return QDateTime::currentMSecsSinceEpoch(); }
+
+// SHA256(secret_le ‖ blind_le) — matches the zk-guess guest/CLI commitment exactly.
+QString commitHex(quint64 secret, quint64 blind) {
+    QByteArray pre;
+    for (int i = 0; i < 8; ++i) pre.append(char((secret >> (8 * i)) & 0xFF));
+    for (int i = 0; i < 8; ++i) pre.append(char((blind  >> (8 * i)) & 0xFF));
+    return QString::fromLatin1(QCryptographicHash::hash(pre, QCryptographicHash::Sha256).toHex());
+}
 }
 
 ZkGuessGameBackend::ZkGuessGameBackend(QObject* parent)
@@ -271,15 +279,6 @@ QString ZkGuessGameBackend::sendChat(QString text)
     m_chat.append(QJsonObject{{"id",m_myId},{"name",m_display},{"text",text},{"ts",ts}});
     setChatJson(QString::fromUtf8(QJsonDocument(m_chat).toJson(QJsonDocument::Compact)));
     return QString();
-}
-
-// SHA256(secret_le ‖ blind_le) — matches the zk-guess guest/CLI commitment exactly.
-static QString commitHex(quint64 secret, quint64 blind)
-{
-    QByteArray pre;
-    for (int i = 0; i < 8; ++i) pre.append(char((secret >> (8 * i)) & 0xFF));
-    for (int i = 0; i < 8; ++i) pre.append(char((blind  >> (8 * i)) & 0xFF));
-    return QString::fromLatin1(QCryptographicHash::hash(pre, QCryptographicHash::Sha256).toHex());
 }
 
 QString ZkGuessGameBackend::startGame()
