@@ -56,6 +56,23 @@ mod zk_guess {
    shows game.data carrying the turn. Then wire the module's `submitGuess` to this submit path
    (replacing the local file-host) so turns settle on-zone.
 
+## F1 — DONE ✅ (sequencer on Sneg, on-zone tx proven, 2026-08-03)
+- Built `sequencer_service` + `wallet` on wild (~3 min, `CARGO_TARGET_DIR=/extra/tmp/lez-target`).
+- **Sequencer runs on Sneg** at `100.108.127.3:3040` (Tailscale) / `192.168.1.36:3040` (LAN),
+  bound `0.0.0.0`, standalone + `RISC0_DEV_MODE=1`. Reachable from wild (both routes).
+- **Gotcha (key):** the copied binary panics at genesis on Sneg —
+  `ProgramExecutionFailed("No such file or directory")` — because Sneg lacked the RISC0 runtime.
+  **Fix: copy `r0vm` to Sneg and put it on PATH** (`~/lez-seq/r0vm`, from wild's
+  `~/.cargo/bin/r0vm` = risc0 3.0.5). Then genesis executes fine.
+- Launch: a run-script (`~/lez-seq/run.sh`, sets PATH incl r0vm + dev-mode) held up by a
+  persistent ssh (`ssh sneg bash ~/lez-seq/run.sh` as a background task). Config is self-contained
+  (inline genesis + signing key; bedrock mocked in standalone), `home` patched to a writable dir.
+- **On-zone proof (against Sneg):** `account new` → `auth-transfer init` (block 32) →
+  `pinata claim` (block 34) → **balance 150 TOK**. The whole submit→include→state path works;
+  also validates EPIC D's staking (spendable TOK, no node).
+- Wallet points at Sneg via `wallet_config.json` `sequencer_addr = http://100.108.127.3:3040`
+  (fresh `LEE_WALLET_HOME_DIR`, dev-mode).
+
 ## Honest notes
 - Per-turn on-zone settlement adds latency (submit + block inclusion) — acceptable for a
   turn-based game; if slow, only stake+win settle on-zone. Default = on-zone per the decision.
