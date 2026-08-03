@@ -61,6 +61,26 @@ QML driving it via a `.rep` backend that also does the delivery code-topic + tur
    creator Start gated ≥2.
 4. Build `.lgx` (builder `6ef42ea8`), install into an isolated BC, GUI-verify (wetware).
 
+## ⚠ WALL (2026-08-03) — groups need a newer delivery than Basecamp ships
+De-risking groups host-side (two `peer.c` peers) **failed at dlopen**:
+`undefined symbol: waku_store_query`. Diagnosis:
+- The only **group-capable** `liblogoschat.so` (libchat @ d2124fd, has `logoschat_create_group` +
+  GroupV1) **NEEDs a delivery lib exporting `waku_store_query`**.
+- **No x86-64 `liblogosdelivery.so` exports it** — only the arm64/Android builds do
+  (`/extra/tmp/*/arm64-v8a/liblogosdelivery.so`). The installed Basecamp delivery module (x86-64) and
+  the shipped `chat_module_mix/liblogoschat.so` are **older** (mix lib has `create_group`=0).
+- ⇒ **The group room needs a newer delivery module than the running Basecamp provides.** Recent
+  libchat (groups) ⟷ needs recent delivery ⟷ Basecamp ships older delivery.
+
+**Two paths:**
+- **A-now (raw delivery, works today):** room = a **StationCrypto code→delivery content-topic** +
+  **announce/heartbeat/TTL presence** (my receiver/booth pattern) — works with the CURRENT installed
+  delivery, matches the code-join spec best, reuses proven code. **No MLS groups** (chat not E2E-MLS,
+  identity is announce-signed not MLS-credential). This is what exploration #1 recommended.
+- **A-groups (needs delivery match):** build/bundle a host x86-64 `liblogosdelivery.so` exporting
+  `waku_store_query` (a Waku/nim build at the matching ref) OR wait for the platform delivery bump,
+  then use the MLS group room. Heavier; a cross-component version-match step.
+
 ## Honest scope
 A is a **large native-integration build** (a core module linking the MLS group lib + a ui_qml
 lobby/room + the delivery handshake + build/GUI cycles). Foundation is now fully de-risked (tooling,
