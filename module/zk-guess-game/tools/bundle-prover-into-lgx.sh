@@ -17,14 +17,20 @@ IN="${1:?usage: bundle-prover-into-lgx.sh <in.lgx> [out.lgx]}"
 OUT="${2:-$IN}"
 PROVER_DIR="${PROVER_DIR:-/extra/tmp/zkg-prover}"
 PROVER_URL="${PROVER_URL:-https://github.com/xAlisher/lez-stark-verify/releases/download/prover-linux-amd64-r0vm3.0.5}"
-VARIANT="variants/linux-amd64"
+VARIANT="linux-amd64"
 
 # expected sha256 (pin — the same binaries the backend was verified against)
 SHA_ZKVERIFY="8e671ba9b191aa367d5247fe725493a47d40678e07be0ad7c21c853532d4df6d"
 SHA_R0VM="36c016a5bb2ded5bd1f8f92cc487e6ffaeb1e95ec05850c983081a0f716b515b"
 
+# lgx CLI recomputes the manifest content-hashes when it (re)writes a variant. A tar-based repack
+# leaves the manifest hashes stale → the signer rejects it ("Content hash mismatch"). So we MUST use
+# `lgx` to add the prover, not tar. Auto-detect it (same as the platform's package script).
+LGX_BIN="${LGX_BIN:-$(command -v lgx 2>/dev/null || find /nix/store -maxdepth 3 -type f -path '*/bin/lgx' 2>/dev/null | sort | tail -n1)}"
+
 need() { command -v "$1" >/dev/null || { echo "need $1" >&2; exit 1; }; }
-need tar; need sha256sum
+need sha256sum
+[ -n "$LGX_BIN" ] && [ -x "$LGX_BIN" ] || { echo "lgx CLI not found; set LGX_BIN" >&2; exit 1; }
 
 # resolve the two binaries: prefer a local dir, else fetch from the release
 resolve() { # <name> <sha>
@@ -44,13 +50,17 @@ check "$ZKV" "$SHA_ZKVERIFY"
 check "$R0V" "$SHA_R0VM"
 
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
-tar xzf "$IN" -C "$WORK"
-[ -d "$WORK/$VARIANT" ] || { echo "no $VARIANT in $IN" >&2; exit 1; }
-install -Dm755 "$ZKV" "$WORK/$VARIANT/zk-verify"
-install -Dm755 "$R0V" "$WORK/$VARIANT/r0vm"
+# 1) start OUT as a copy of IN; 2) extract the linux-amd64 variant; 3) drop the prover beside the .so;
+# 4) `lgx add` the complete variant back (REPLACES it, recomputing all manifest hashes).
+[ "$IN" != "$OUT" ] && cp -f "$IN" "$OUT" && chmod u+w "$OUT"
+"$LGX_BIN" extract "$OUT" --variant "$VARIANT" --output "$WORK" >/dev/null
+VDIR="$WORK/$VARIANT"
+[ -d "$VDIR" ] || { echo "no $VARIANT variant in $IN" >&2; exit 1; }
+install -Dm755 "$ZKV" "$VDIR/zk-verify"
+install -Dm755 "$R0V" "$VDIR/r0vm"
+"$LGX_BIN" add "$OUT" --variant "$VARIANT" --files "$VDIR" \
+  --main zk_guess_game_plugin.so --view qml/Main.qml --yes >/dev/null
 
-# repack (stable order; keep manifest/variant layout the packager expects)
-tar czf "$OUT" -C "$WORK" .
-echo "bundled prover into $OUT"
-tar tzf "$OUT" | grep -E 'zk-verify|r0vm' | sed 's/^/  + /'
+echo "bundled prover into $OUT (hashes recomputed via lgx)"
+"$LGX_BIN" verify "$OUT" 2>&1 | grep -iE 'valid|ok|error' | head -1 | sed 's/^/  lgx verify: /'
 echo "  size: $(du -h "$OUT" | cut -f1)"
