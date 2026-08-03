@@ -32,6 +32,24 @@ Rectangle {
             Text { text: "delivery: " + status; color: root.dim; font.family: root.mono; font.pixelSize: 12 }
         }
     }
+    // compact themed button (fixes the giant default QtQuick buttons)
+    component GButton : Button {
+        id: gb
+        padding: 7
+        font.family: root.mono; font.pixelSize: 13
+        contentItem: Text {
+            text: gb.text; font: gb.font
+            color: gb.enabled ? root.teal : root.dim
+            horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
+        }
+        background: Rectangle {
+            radius: 5; implicitHeight: 26
+            color: gb.down ? "#14201c" : "#0f1614"
+            border.color: gb.enabled ? root.teal : "#1c2622"
+            opacity: gb.enabled ? 1.0 : 0.55
+        }
+    }
+
     function refresh() {
         try { roster = JSON.parse(backend ? backend.rosterJson : "[]") } catch(e) { roster = [] }
         try { chat   = JSON.parse(backend ? backend.chatJson   : "[]") } catch(e) { chat = [] }
@@ -63,7 +81,7 @@ Rectangle {
             placeholderText: "your name"; color: root.fg; font.family: root.mono
             background: Rectangle { color: "#0f1614"; border.color: "#1c2622"; radius: 4 }
         }
-        Button {
+        GButton {
             text: "Start new game"; Layout.fillWidth: true
             onClicked: backend && backend.createRoom("ZK Guess", nameField.text)
         }
@@ -76,7 +94,7 @@ Rectangle {
                 inputMethodHints: Qt.ImhUppercaseOnly
                 background: Rectangle { color: "#0f1614"; border.color: "#1c2622"; radius: 4 }
             }
-            Button { text: "Join created game"; onClicked: backend && backend.joinRoom(codeField.text, nameField.text) }
+            GButton { text: "Join created game"; onClicked: backend && backend.joinRoom(codeField.text, nameField.text) }
         }
         Text {
             visible: backend && backend.lastError.length > 0
@@ -104,12 +122,12 @@ Rectangle {
                 visible: backend && backend.isCreator; spacing: 6
                 Text { text: "· invite code " + (backend ? backend.roomCode : ""); color: root.amber; font.family: root.mono; font.pixelSize: 13 }
                 TextEdit { id: codeClip; visible: false; text: backend ? backend.roomCode : "" }
-                Button { text: "⧉ copy"; padding: 4; font.family: root.mono
+                GButton { text: "⧉ copy"; padding: 4; font.family: root.mono
                          onClicked: { codeClip.selectAll(); codeClip.copy() } }
             }
             Item { Layout.fillWidth: true }
             StatusPill { status: backend ? backend.connectionStatus : "idle" }
-            Button { text: "leave"; onClicked: backend && backend.leaveRoom() }
+            GButton { text: "leave"; onClicked: backend && backend.leaveRoom() }
         }
         Rectangle { Layout.fillWidth: true; height: 1; color: "#1c2622" }
 
@@ -137,7 +155,7 @@ Rectangle {
                         background: Rectangle { color: "#0f1614"; border.color: "#1c2622"; radius: 4 }
                         onAccepted: { if (backend) backend.sendChat(text); text = "" }
                     }
-                    Button { text: "Send"; onClicked: { if (backend) backend.sendChat(chatInput.text); chatInput.text = "" } }
+                    GButton { text: "Send"; onClicked: { if (backend) backend.sendChat(chatInput.text); chatInput.text = "" } }
                 }
             }
 
@@ -157,7 +175,7 @@ Rectangle {
                     }
                 }
                 Item { Layout.fillHeight: true }
-                Button {
+                GButton {
                     visible: backend && backend.isCreator && !backend.started
                     enabled: root.roster.length >= 2
                     text: "Start game"; Layout.fillWidth: true
