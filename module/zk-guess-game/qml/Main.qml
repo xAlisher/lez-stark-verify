@@ -19,7 +19,10 @@ Rectangle {
     property var roster: []
     property var chat: []
     property var turns: []
+    property var feedItems: []   // turns + chat, one time-ordered stream
     function statusColor(s) { return s === "connected" ? teal : (s === "connecting" ? amber : dim) }
+    function tsFmt(ms) { if (!ms) return "--:--:--"; var d = new Date(ms)
+        return ("0"+d.getHours()).slice(-2)+":"+("0"+d.getMinutes()).slice(-2)+":"+("0"+d.getSeconds()).slice(-2) }
     function dirName(d) { return d === 0 ? "BELOW" : d === 1 ? "EQUAL" : d === 2 ? "ABOVE" : "?" }
     function rangeLo() { var lo = 0; for (var i=0;i<turns.length;i++){ var t=turns[i]; if(t.dir===0 && t.guess+1>lo) lo=t.guess+1 } return lo }
     function rangeHi() { var hi = 1000000; for (var i=0;i<turns.length;i++){ var t=turns[i]; if(t.dir===2 && t.guess-1<hi) hi=t.guess-1 } return hi }
@@ -63,6 +66,9 @@ Rectangle {
         try { roster = JSON.parse(backend ? backend.rosterJson : "[]") } catch(e) { roster = [] }
         try { chat   = JSON.parse(backend ? backend.chatJson   : "[]") } catch(e) { chat = [] }
         try { turns  = JSON.parse(backend ? backend.turnsJson  : "[]") } catch(e) { turns = [] }
+        var merged = (backend && backend.started) ? root.turns.concat(root.chat) : root.chat.slice()
+        merged.sort(function(a, b) { return (a.ts || 0) - (b.ts || 0) })
+        feedItems = merged
     }
     Connections {
         target: root.backend
@@ -93,6 +99,10 @@ Rectangle {
             placeholderText: "your name"; color: root.fg; font.family: root.mono
             background: Rectangle { color: "#0f1614"; border.color: "#1c2622"; radius: 4 }
             Component.onCompleted: if (backend && backend.suggestedName.length > 0) text = backend.suggestedName
+            Connections {   // suggestedName syncs over QtRO after onCompleted — fill in when it arrives
+                target: root.backend; enabled: root.backend !== null; ignoreUnknownSignals: true
+                function onSuggestedNameChanged() { if (nameField.text.length === 0) nameField.text = root.backend.suggestedName }
+            }
         }
         GButton {
             text: "Start new game"; Layout.fillWidth: true
@@ -176,16 +186,18 @@ Rectangle {
                           + "   ·   you know " + root.rangeLo() + "…" + root.rangeHi()
                     color: root.dim
                 }
-                ListView {   // feed: turns + chat together in-game, chat pre-game
+                ListView {   // one time-ordered stream: turns + chat interleaved by timestamp
                     id: feed; Layout.fillWidth: true; Layout.fillHeight: true; clip: true
-                    model: (backend && backend.started) ? root.turns.concat(root.chat) : root.chat
+                    model: root.feedItems
                     onCountChanged: positionViewAtEnd()
                     delegate: Text {
                         width: feed.width; wrapMode: Text.WordWrap; font.family: root.mono; font.pixelSize: 13
-                        text: (modelData.dir !== undefined)
-                              ? ((modelData.name || "?") + " · " + modelData.guess + " · " + root.dirName(modelData.dir)
-                                 + (modelData.proven ? " · verified on LEZ ✓" : " · (unverified)"))
-                              : ((modelData.name || "?") + "  " + (modelData.text || ""))
+                        text: "<font color='#3f4c47'>" + root.tsFmt(modelData.ts) + "</font>  "
+                              + ((modelData.dir !== undefined)
+                                 ? ((modelData.name || "?") + " · " + modelData.guess + " · " + root.dirName(modelData.dir)
+                                    + (modelData.proven ? " · verified on LEZ ✓" : " · (unverified)"))
+                                 : ((modelData.name || "?") + "  " + (modelData.text || "")))
+                        textFormat: Text.StyledText
                         color: modelData.dir === 1 ? "#7ef0c4" : (modelData.dir !== undefined ? root.teal : root.fg)
                     }
                 }

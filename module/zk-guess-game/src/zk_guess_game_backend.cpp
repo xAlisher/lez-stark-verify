@@ -387,7 +387,8 @@ QString ZkGuessGameBackend::submitGuess(int guess)
 
 void ZkGuessGameBackend::addTurn(int guess, int dir, const QString& byName, bool proven)
 {
-    m_turns.append(QJsonObject{{"name",byName},{"guess",guess},{"dir",dir},{"proven",proven}});
+    m_turns.append(QJsonObject{{"name",byName},{"guess",guess},{"dir",dir},{"proven",proven},
+                               {"ts",double(nowMs())},{"kind","turn"}});
     setTurnsJson(QString::fromUtf8(QJsonDocument(m_turns).toJson(QJsonDocument::Compact)));
 }
 
