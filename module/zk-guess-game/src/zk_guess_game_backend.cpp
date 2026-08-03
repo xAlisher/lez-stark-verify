@@ -264,10 +264,13 @@ void ZkGuessGameBackend::ingest(const QVariant& payload)
         setStarted(true);
         log(QStringLiteral("host sealed a number — start guessing"));
     } else if (t == QLatin1String("guess")) {
-        setProvingName(o.value("name").toString());     // all clients: show the per-turn proving spinner
-        setProvingGuess(o.value("guess").toInt());
-        if (isCreator()) {   // only the host holds the secret → it proves the turn on zk-verify
-            proveGuess(o.value("guess").toInt(), o.value("name").toString());
+        const int g = o.value("guess").toInt();
+        bool resolved = false;   // Waku reorders/duplicates — ignore a guess whose verdict already landed
+        for (const auto& v : m_turns) if (v.toObject().value("guess").toInt() == g) { resolved = true; break; }
+        if (!resolved) {
+            setProvingName(o.value("name").toString());   // all clients: show the per-turn proving spinner
+            setProvingGuess(g);
+            if (isCreator()) proveGuess(g, o.value("name").toString());   // host holds the secret → proves
         }
     } else if (t == QLatin1String("verdict")) {
         const int g = o.value("guess").toInt();
@@ -286,7 +289,11 @@ void ZkGuessGameBackend::ingest(const QVariant& payload)
             }
         }
     } else if (t == QLatin1String("turn")) {
-        setCurrentTurnId(o.value("turnId").toString());
+        const QString newTid = o.value("turnId").toString();
+        if (!newTid.isEmpty() && newTid != currentTurnId()) {   // a REAL advance (not a 5s re-broadcast)
+            setProvingName(QString()); setProvingGuess(-1);      // prior turn's proof is done → clear spinner
+        }
+        setCurrentTurnId(newTid);
         setCurrentTurnName(o.value("turnName").toString());
     }
 }
