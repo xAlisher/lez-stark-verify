@@ -457,8 +457,16 @@ QString ZkGuessGameBackend::leaveRoom()
     if (m_heartbeat) { m_heartbeat->stop(); }
     if (!m_topic.isEmpty())
         modules().delivery_module.unsubscribeAsync(m_topic, [](LogosResult){}, Timeout());
-    m_topic.clear(); m_players.clear(); m_chat = QJsonArray();
-    setInRoom(false); setStarted(false); setRoomCode(QString()); setRosterJson("[]"); setChatJson("[]");
+    m_topic.clear(); m_players.clear();
+    m_chat = QJsonArray(); m_turns = QJsonArray(); m_contribs.clear();
+    m_turnOrder.clear(); m_turnIdx = -1;
+    // reset EVERY game/room prop so the lobby renders clean (no stale win/room overlay).
+    setInRoom(false); setIsCreator(false);
+    setCollectingEntropy(false); setEntropySubmitted(false); setStarted(false);
+    setWon(false); setWinnerName(QString()); setSecretRevealed(-1);
+    setSealedCommitment(QString()); setCurrentTurnId(QString()); setCurrentTurnName(QString());
+    setRoomCode(QString()); setRoomName(QString());
+    setRosterJson("[]"); setChatJson("[]"); setTurnsJson("[]");
     setConnectionStatus(QStringLiteral("idle"));
     return QString();
 }
