@@ -38,7 +38,7 @@ Rectangle {
     property real nowMs: 0
     readonly property bool proving: backend && backend.provingName !== ""       // per-turn STARK (fast)
     readonly property bool settling: backend && backend.settling                // on-zone win (real ~16min)
-    readonly property int  SETTLE_ETA: 16 * 60 * 1000                           // ~16 min real proof
+    readonly property int  settleEtaMs: 16 * 60 * 1000                           // ~16 min real proof
     function clockFmt(ms) { if (ms < 0) ms = 0; var s = Math.floor(ms/1000)
         return ("0"+Math.floor(s/60)).slice(-2) + ":" + ("0"+(s%60)).slice(-2) }
     // one ticker drives both spinners; runs only while something is proving.
@@ -451,7 +451,7 @@ Rectangle {
                         }
                         Text {
                             Layout.alignment: Qt.AlignHCenter
-                            text: "~" + root.clockFmt(root.SETTLE_ETA - (root.nowMs - (backend ? backend.settleStartMs : 0))) + " left"
+                            text: "~" + root.clockFmt(root.settleEtaMs - (root.nowMs - (backend ? backend.settleStartMs : 0))) + " left"
                             color: root.fg; font.family: root.mono; font.pixelSize: 20; font.bold: true
                         }
                         Rectangle {   // progress bar (elapsed / ETA)
@@ -459,7 +459,7 @@ Rectangle {
                             Rectangle {
                                 height: parent.height; radius: 2.5; color: root.amber
                                 width: parent.width * Math.max(0, Math.min(1,
-                                    (root.nowMs - (backend ? backend.settleStartMs : 0)) / root.SETTLE_ETA))
+                                    (root.nowMs - (backend ? backend.settleStartMs : 0)) / root.settleEtaMs))
                             }
                         }
                         Text { text: "you can leave — the block lands whether or not you watch"
