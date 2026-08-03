@@ -106,7 +106,18 @@ $ zk-verify verify fixtures/tampered.receipt
 
 ---
 
-## M3 — chat-room Basecamp module (#14/#15)  ✅ built · 🧫 GUI eyeball = wetware
+## M3 — chat-room Basecamp module (#14/#15)  ✅ BUILT + GUI-CONFIRMED
+
+**GUI confirmed** (2026-08-03, isolated instance, screenshot): the chat room renders; **Verify
+honest turn** → `✓ verified · guess 600000 · ABOVE · proof checked on LEZ` (teal); **Verify
+tampered turn** → `✗ REJECTED` (red); the header `🔒 sealed 0x9322c0b1…` updates live from a real
+verification result — a genuine RISC0 STARK receipt verified inside a Basecamp module, both paths
+correct.
+
+_Honest scope:_ the module verifies the **bundled fixture** (always the 600000/ABOVE turn) — it
+demonstrates real in-UI STARK verification, not yet a live interactive game (per-guess proving is
+a later increment; the headless M2 loop already proves the interactive mechanic).
+
 
 `module/zk-guess-basecamp/` — cloned from the proven `zk-eligibility-basecamp`, re-skinned as
 the anon guessing room. What's **verified headlessly**:
