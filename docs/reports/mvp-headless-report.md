@@ -106,6 +106,30 @@ $ zk-verify verify fixtures/tampered.receipt
 
 ---
 
+## M3 — chat-room Basecamp module (#14/#15)  ✅ built · 🧫 GUI eyeball = wetware
+
+`module/zk-guess-basecamp/` — cloned from the proven `zk-eligibility-basecamp`, re-skinned as
+the anon guessing room. What's **verified headlessly**:
+
+- **`.lgx` builds** (nix): `logos-zk_guess_ui-module.lgx` (3.7 MB, linux-amd64) with
+  `zk_guess_ui_plugin.so` + `zk_guess_ui_replica_factory.so` → the **C++ / QtRO / `.rep` / moc /
+  repc / plugin wiring all compile**. The `.rep` signal is now
+  `verifyResult(bool valid, QString commitment, int guess, int dir, QString error)`.
+- **QML lints clean** (`qmllint` with Qt import path): no syntax or real-property errors; only
+  Basecamp-provided imports (`Logos.Theme`/`Logos.Controls`) are unresolved off-platform, as expected.
+- **Backend path is byte-identical** to the live-proven `zk_eligibility_ui`: `QProcess` runs
+  `zk-verify verify <receipt>` and parses the JSON. Staged backend smoke-tests:
+  `valid → {valid:true,dir:ABOVE,guess:600000}`, `tampered → {valid:false}`.
+
+**What remains = wetware:** does the chat room *render* and do the two turn buttons walk
+proving → verdict in the GUI. That's a visual/interaction check only a human can sign off.
+
+**To eyeball:** install `~/zk_guess_ui-0.1.0-linux-amd64.lgx` (unsigned MVP → allow unsigned) via
+the Package Manager, then launch with `module/zk-guess-basecamp/launch-demo.sh` (exports
+`ZK_VERIFY_BIN` + `ZK_FIXTURES` → the staged backend at `~/.local/share/zk-guess/`), open **ZK
+Guess**, and click the two turn buttons. Expected: an honest turn logs `✓ verified · guess 600000
+· ABOVE`; a tampered turn logs `✗ REJECTED`.
+
 ## Space discipline
 Root `/` held at **14G free / 82%** across both builds; all growth (build target, risc0
 toolchain, proof segments) landed on `/extra` (163G free), crate cache on `/data`. Nothing
