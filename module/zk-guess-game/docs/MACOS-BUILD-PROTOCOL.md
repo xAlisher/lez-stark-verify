@@ -69,12 +69,14 @@ lgx verify "$LGX"                                                 # "Package str
 ```
 
 ## Sign (Linux box) + attach to the SAME tag
+Sign the `.lgx` with the project's signing key (internal process — kept out of this repo), verify the
+signature, then upload to the same release tag:
 ```sh
-# LD_LIBRARY_PATH = AppImage usr/lib + nix libsodium (see /release §3)
-lgx_signer sign "$LGX" ~/.config/logos-signing/keys/xAlisher.jwk xAlisher https://github.com/xAlisher
-lgx_signer verify "$LGX"       # is_signed: yes · signature_valid: yes · signer_name: xAlisher
+lgx verify "$LGX"                         # "Package structure is valid"
+# … sign with the xAlisher signing key, then confirm: is_signed: yes · signature_valid: yes …
 gh release upload zk_guess_game-v<ver> "$LGX" --repo xAlisher/lez-stark-verify
 ```
+A signed `.lgx` installs via the Package Manager without `--allow-unsigned` and shows "✓ Signed by xAlisher".
 
 ## Headless sanity check (catches the #1 darwin-load failure)
 ```sh
