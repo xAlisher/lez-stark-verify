@@ -73,6 +73,21 @@ mod zk_guess {
 - Wallet points at Sneg via `wallet_config.json` `sequencer_addr = http://100.108.127.3:3040`
   (fresh `LEE_WALLET_HOME_DIR`, dev-mode).
 
+## F2 + F3 — DONE ✅ (guess turn settles on Sneg, 2026-08-03)
+- Wrote `zk-guess-program` (`#[lez_program]`) + `zk-guess-methods` (guest ELF + `e2e_submit`) in the
+  fork, mirroring referral. **Compiled first try** (one unused-import warning). Source mirrored to
+  `module/zk-guess-lez/`.
+- **Key realization:** privacy-preserving txs carry the program **inline** (`ProgramWithDependencies`)
+  — no separate `wallet deploy-program`; `e2e_submit` submits directly.
+- **Ran against Sneg** (`e2e_submit`, dev-mode): `INIT included block 99` · `GUESS(600000)=ABOVE
+  included block 100 — verified on LEZ` · **wrong-secret rejected** (`Program error 4: commitment
+  mismatch — sealed number was swapped`). `E2E COMPLETE`.
+- **What's proven:** the guess logic runs as a real program on the zone; a turn is submitted,
+  verified, and settled into a block on Sneg; the swap-soundness (commitment-open) holds on-zone.
+- **Remaining for FULLY real:** `RISC0_DEV_MODE` off on both the Sneg sequencer + the prover →
+  cryptographically-valid STARK receipts (heavier proving; the M1/M2 guest already proves in real
+  mode). Dev-mode proves the *integration*; real-mode proves the *cryptography*.
+
 ## Honest notes
 - Per-turn on-zone settlement adds latency (submit + block inclusion) — acceptable for a
   turn-based game; if slow, only stake+win settle on-zone. Default = on-zone per the decision.

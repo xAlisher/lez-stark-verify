@@ -1,0 +1,28 @@
+[workspace]
+
+[package]
+name = "zk-guess-methods"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+risc0-zkvm = "3.0.5"
+lee = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", rev = "787a15aad34acb89f750eadc4c41bfdf5c0d59a8", package = "lee" }
+lee_core = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", rev = "787a15aad34acb89f750eadc4c41bfdf5c0d59a8", package = "lee_core", features = ["host"] }
+wallet = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", rev = "787a15aad34acb89f750eadc4c41bfdf5c0d59a8" }
+zk-guess-program = { path = "../zk-guess-program" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+anyhow = "1"
+hex = "0.4"
+sha2 = "0.10"
+env_logger = "0.11"
+url = "2"
+
+[build-dependencies]
+risc0-build = "3.0.5"
+
+[package.metadata.risc0]
+methods = ["guest"]
+
+# Guest + program-crate LEZ git deps resolve to the local dev checkout (787a15aa).

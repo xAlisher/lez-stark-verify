@@ -1,0 +1,15 @@
+[workspace]
+
+[package]
+name = "zk-guess-guests"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "zk_guess"
+path = "src/bin/zk_guess.rs"
+
+[dependencies]
+zk-guess-program = { path = "../../zk-guess-program" }
+risc0-zkvm = { version = "=3.0.5", default-features = false, features = ["std"] }

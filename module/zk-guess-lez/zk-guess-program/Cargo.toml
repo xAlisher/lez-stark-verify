@@ -1,0 +1,16 @@
+[workspace]
+
+[package]
+name = "zk-guess-program"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+spel-framework = { path = "../spel-framework" }
+nssa_core = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", rev = "787a15aad34acb89f750eadc4c41bfdf5c0d59a8", package = "lee_core" }
+serde = { version = "1", features = ["derive"] }
+sha2 = { version = "0.10", default-features = false }
+
+# Same repin as the fork root: spel-framework's own LEZ git deps resolve to the
+# local dev checkout (787a15aa) instead of tag v0.2.0.
