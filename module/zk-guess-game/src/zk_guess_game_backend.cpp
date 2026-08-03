@@ -157,7 +157,16 @@ void ZkGuessGameBackend::bringUpNodeThenJoin()
         }
         if (!m_prune) {
             m_prune = new QTimer(this);
-            connect(m_prune, &QTimer::timeout, this, [this]{ pruneRoster(); });
+            connect(m_prune, &QTimer::timeout, this, [this]{
+                pruneRoster();
+                // Turn broadcasts go over best-effort Waku — a single dropped "turn" leaves that
+                // player's currentTurnId stale forever (no slider, game stuck). The host re-asserts
+                // the current turn every tick; clients already in sync no-op (change-guarded setter),
+                // a client that missed it recovers within PRUNE_MS.
+                if (isCreator() && started() && !won() && !currentTurnId().isEmpty())
+                    sendEnvelope(QJsonObject{{"t","turn"},{"id",m_myId},
+                                 {"turnId",currentTurnId()},{"turnName",currentTurnName()}});
+            });
             m_prune->start(PRUNE_MS);
         }
     });

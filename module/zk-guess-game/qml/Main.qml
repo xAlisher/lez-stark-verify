@@ -227,13 +227,30 @@ Rectangle {
                     Text { text: "your turn ▸"; color: root.teal; font.family: root.mono; font.pixelSize: 12; font.bold: true }
                     Text { text: root.rangeLo(); color: root.dim; font.family: root.mono; font.pixelSize: 12 }
                     Slider {
-                        id: guessSlider; Layout.fillWidth: true
+                        id: guessSlider; Layout.fillWidth: true; implicitHeight: 22
                         from: root.rangeLo(); to: Math.max(root.rangeLo(), root.rangeHi()); stepSize: 1
                         Component.onCompleted: value = Math.round((root.rangeLo() + root.rangeHi()) / 2)
                         Connections {   // re-center on every verdict AND when the turn arrives (range narrows in all UIs)
                             target: root.backend; enabled: root.backend !== null; ignoreUnknownSignals: true
                             function onTurnsJsonChanged()    { guessSlider.value = Math.round((root.rangeLo() + root.rangeHi()) / 2) }
                             function onCurrentTurnIdChanged() { guessSlider.value = Math.round((root.rangeLo() + root.rangeHi()) / 2) }
+                        }
+                        background: Rectangle {   // dark track + teal fill (default QML style is white)
+                            x: guessSlider.leftPadding
+                            y: guessSlider.topPadding + guessSlider.availableHeight / 2 - height / 2
+                            width: guessSlider.availableWidth; height: 5; radius: 2.5
+                            color: "#1c2622"
+                            Rectangle {
+                                width: guessSlider.visualPosition * parent.width; height: parent.height
+                                radius: 2.5; color: root.teal
+                            }
+                        }
+                        handle: Rectangle {
+                            x: guessSlider.leftPadding + guessSlider.visualPosition * (guessSlider.availableWidth - width)
+                            y: guessSlider.topPadding + guessSlider.availableHeight / 2 - height / 2
+                            implicitWidth: 16; implicitHeight: 16; radius: 8
+                            color: guessSlider.pressed ? root.teal : "#0f1614"
+                            border.color: root.teal; border.width: 2
                         }
                     }
                     Text { text: root.rangeHi(); color: root.dim; font.family: root.mono; font.pixelSize: 12 }
