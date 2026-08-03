@@ -18,10 +18,12 @@ public:
 
 public slots:
     void verifyReceipt(QString name) override;
+    void submitGuess(int guess) override;
 
 private:
     QString toolPath() const;
     QString receiptPath(const QString& name) const;
+    QString gameDir() const;
 
     LogosAPI* m_logosAPI = nullptr;
 };

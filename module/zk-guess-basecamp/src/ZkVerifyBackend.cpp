@@ -44,6 +44,45 @@ QString ZkVerifyBackend::receiptPath(const QString& name) const
     return tool.absolutePath() + QStringLiteral("/fixtures/") + file;
 }
 
+// Shared game directory the host serves (ZK_GAME_DIR). Host holds the secret;
+// this backend only submits guesses + verifies the returned receipt.
+QString ZkVerifyBackend::gameDir() const
+{
+    return qEnvironmentVariable("ZK_GAME_DIR");
+}
+
+// Live turn: submit a guess to the host and report the verdict — ASYNC, so the
+// UI can show "proving…" while the host proves (~8s) instead of freezing.
+void ZkVerifyBackend::submitGuess(int guess)
+{
+    const QString dir = gameDir();
+    if (dir.isEmpty()) {
+        emit verifyResult(false, QString(), guess, -1, QStringLiteral("ZK_GAME_DIR not set — no game host"));
+        return;
+    }
+    auto* p = new QProcess(this);
+    connect(p, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
+            [this, p, guess](int, QProcess::ExitStatus) {
+        const QByteArray out = p->readAllStandardOutput();
+        const QJsonDocument doc = QJsonDocument::fromJson(out);
+        if (!doc.isObject()) {
+            const QString err = QString::fromUtf8(p->readAllStandardError()).trimmed();
+            emit verifyResult(false, QString(), guess, -1,
+                              err.isEmpty() ? QStringLiteral("no result from host") : err);
+        } else {
+            const QJsonObject o = doc.object();
+            setLastJson(QString::fromUtf8(out).trimmed());
+            emit verifyResult(o.value(QStringLiteral("valid")).toBool(),
+                              o.value(QStringLiteral("commitment")).toString(),
+                              o.value(QStringLiteral("guess")).toInt(),
+                              o.value(QStringLiteral("dir")).toInt(),
+                              QString());
+        }
+        p->deleteLater();
+    });
+    p->start(toolPath(), {QStringLiteral("turn"), dir, QString::number(guess)});
+}
+
 void ZkVerifyBackend::verifyReceipt(QString name)
 {
     const QString tool = toolPath();

@@ -6,6 +6,10 @@ class ZkVerifyBackend
     // Runs the bundled `zk-verify` tool (zk-guess) and reports the turn verdict.
     SLOT(void verifyReceipt(QString name))
 
+    // live game: submit a guess to the host (ZK_GAME_DIR); async — the host proves,
+    // we verify client-side, then verifyResult fires. UI shows "proving…" meanwhile.
+    SLOT(void submitGuess(int guess))
+
     // dir: 0 below · 1 equal · 2 above  (the guess relative to the sealed secret)
     SIGNAL(verifyResult(bool valid, QString commitment, int guess, int dir, QString error))
 }
