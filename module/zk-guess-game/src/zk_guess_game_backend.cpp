@@ -280,12 +280,20 @@ void ZkGuessGameBackend::ingest(const QVariant& payload)
         log(QStringLiteral("host sealed a number — start guessing"));
     } else if (t == QLatin1String("guess")) {
         const int g = o.value("guess").toInt();
-        bool resolved = false;   // Waku reorders/duplicates — ignore a guess whose verdict already landed
-        for (const auto& v : m_turns) if (v.toObject().value("guess").toInt() == g) { resolved = true; break; }
-        if (!resolved) {
+        QJsonObject resolvedTurn;   // Waku reorders/duplicates — a guess whose verdict already landed
+        for (const auto& v : m_turns) if (v.toObject().value("guess").toInt() == g) { resolvedTurn = v.toObject(); break; }
+        if (resolvedTurn.isEmpty()) {
             setProvingName(o.value("name").toString());   // all clients: show the per-turn proving spinner
             setProvingGuess(g);
             if (isCreator()) proveGuess(g, o.value("name").toString());   // host holds the secret → proves
+        } else if (isCreator()) {
+            // #31: this player re-guessed an already-resolved value → they missed the verdict. Re-send it
+            // so their spinner clears + range corrects, instead of silently ignoring (which wedges them).
+            const int dir = resolvedTurn.value("dir").toInt();
+            QJsonObject vv{{"t","verdict"},{"id",m_myId},{"guess",g},{"dir",dir},
+                           {"name",resolvedTurn.value("name").toString()},{"proven",resolvedTurn.value("proven").toBool()}};
+            if (dir == 1) { vv.insert("winner", resolvedTurn.value("name")); vv.insert("secret", int(m_secret)); vv.insert("blind", int(m_blind)); }
+            sendEnvelope(vv);
         }
     } else if (t == QLatin1String("verdict")) {
         const int g = o.value("guess").toInt();
@@ -328,6 +336,15 @@ void ZkGuessGameBackend::ingest(const QVariant& payload)
             publishRoster();
             const QString tid = o.value("turnId").toString();
             if (!tid.isEmpty()) { setCurrentTurnId(tid); setCurrentTurnName(o.value("turnName").toString()); }
+            if (o.contains(QLatin1String("turns"))) {   // #31: adopt the host's authoritative turn log
+                m_turns = o.value("turns").toArray();
+                setTurnsJson(QString::fromUtf8(QJsonDocument(m_turns).toJson(QJsonDocument::Compact)));
+                if (provingGuess() >= 0)   // my in-flight guess now has a verdict → clear the stuck spinner
+                    for (const auto& v : m_turns)
+                        if (v.toObject().value("guess").toInt() == provingGuess()) {
+                            setProvingName(QString()); setProvingGuess(-1); break;
+                        }
+            }
         }
     }
 }
@@ -465,6 +482,7 @@ void ZkGuessGameBackend::broadcastRoster()
     for (const QString& id : m_turnOrder) to.append(id);
     QJsonObject o{{"t","roster"},{"id",m_myId},{"players",ps},{"turnOrder",to}};
     if (!currentTurnId().isEmpty()) { o.insert("turnId", currentTurnId()); o.insert("turnName", currentTurnName()); }
+    if (!m_turns.isEmpty()) o.insert("turns", m_turns);   // #31: carry the authoritative turn log → missed verdicts self-heal
     sendEnvelope(o);
 }
 
