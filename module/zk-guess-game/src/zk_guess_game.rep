@@ -32,6 +32,20 @@ class ZkGuessGame
     PROP(QString settleError="" READONLY)             // settlement failure, if any
     PROP(QString lastError="" READONLY)
 
+    // ── TOK pot (EPIC D) — bet TOK, the proven winner takes the pot (minus a fixed dev + host cut) ──
+    PROP(int     betAmount=0 READONLY)                // this room's stake size in TOK (0 = free game)
+    PROP(QString myOnZoneAddr="" READONLY)            // my on-zone pot account (funded from the faucet)
+    PROP(bool    onZoneFunded=false READONLY)         // my pot account has TOK
+    PROP(int     myBalance=0 READONLY)                // my pot-account balance (TOK)
+    PROP(QString stakeState="none" READONLY)          // none|funding|staking|staked|refunding|refunded
+    PROP(QString stakeTx="" READONLY)                 // my stake tx hash
+    PROP(int     potTotal=0 READONLY)                 // sum of stakes seen this room
+    PROP(bool    potReady=false READONLY)             // host created the on-zone pot → staking is open
+    PROP(QString gameId="" READONLY)                  // host's on-zone game account (broadcast to stakers)
+    PROP(int     builderBps=250 READONLY)             // fixed dev rake (2.5%) — display
+    PROP(int     hostBps=500 READONLY)                // host cut (5%) — display
+    PROP(QString payoutTx="" READONLY)                // the 3-way split settlement tx (== settleTx on a pot game)
+
     SIGNAL(activity(QString line))                    // human-readable log line
 
     SLOT(QString createRoom(QString roomName, QString displayName))   // → generates the code, hosts
@@ -41,5 +55,10 @@ class ZkGuessGame
     SLOT(QString submitEntropy(QString contribution))  // my mouse-draw randomness → folded into the seal
     SLOT(QString submitGuess(int guess))               // broadcast a guess; host proves + broadcasts the verdict
     SLOT(QString settleOnLez())                        // winner: settle the win on-zone (real STARK, background)
+    // ── TOK pot (EPIC D) ──
+    SLOT(QString setBet(int amount))                   // host, pre-start: set the room's stake size (0 = free)
+    SLOT(QString fundOnZone())                         // any player: create + faucet-fund my on-zone pot account
+    SLOT(QString placeBet())                           // player: stake betAmount into the pot
+    SLOT(QString refundOnLez())                        // reclaim my stake if the game abandoned
     SLOT(QString leaveRoom())
 }

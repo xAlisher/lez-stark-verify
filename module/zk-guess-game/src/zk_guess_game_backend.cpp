@@ -17,6 +17,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QRegularExpression>
+#include <QStandardPaths>
 
 #include <dlfcn.h>   // dladdr — resolve the plugin's own .so dir so bundled tools sit beside it
 
@@ -285,6 +286,21 @@ void ZkGuessGameBackend::ingest(const QVariant& payload)
                 setWon(true);
                 setWinnerName(o.value("winner").toString());
                 setSecretRevealed(int(s));
+                // pot: if I'm the winner, I now hold the reveal → bind myself on-zone (Tier 2),
+                // then broadcast "winbound" so the host can settle the pot to me.
+                if (m_bet > 0 && !m_gameId.isEmpty() && !m_recordedWin
+                        && o.value("winner").toString() == m_display) {
+                    m_secret = s; m_blind = b;   // store the revealed number so record-win can prove it
+                    m_recordedWin = true;
+                    launchPot(QStringLiteral("record-win"),
+                              { {QStringLiteral("ZKG_GAME_ID"), m_gameId},
+                                {QStringLiteral("ZKG_SECRET"), QString::number(s)},
+                                {QStringLiteral("ZKG_BLIND"),  QString::number(b)} },
+                              [this](int code, const QString&){
+                        if (code == 0) sendEnvelope(QJsonObject{{"t","winbound"},{"id",m_myId},{"addr",m_onZoneAddr}});
+                        else { m_recordedWin = false; setLastError(QStringLiteral("record-win failed")); }
+                    });
+                }
             } else {
                 log(QStringLiteral("reveal did NOT match the seal — rejected"));
             }
@@ -296,6 +312,21 @@ void ZkGuessGameBackend::ingest(const QVariant& payload)
         }
         setCurrentTurnId(newTid);
         setCurrentTurnName(o.value("turnName").toString());
+    } else if (t == QLatin1String("bet")) {                       // host announced the room stake
+        if (!isCreator()) { m_bet = o.value("amount").toInt(); setBetAmount(m_bet); }
+    } else if (t == QLatin1String("zaddr")) {                     // a player's on-zone payout address
+        if (m_players.contains(id)) m_players[id].onZoneAddr = o.value("addr").toString();
+    } else if (t == QLatin1String("potready")) {                  // host created the on-zone pot
+        if (!isCreator()) {
+            m_gameId = o.value("game").toString();
+            setGameId(m_gameId); setPotReady(true);
+            log(QStringLiteral("pot is open on-zone — place your bet"));
+        }
+    } else if (t == QLatin1String("staked")) {                    // a player staked → host tallies the pot
+        if (isCreator()) { m_stakes.insert(o.value("addr").toString(), o.value("amount").toInt()); recomputePot(); }
+    } else if (t == QLatin1String("winbound")) {                  // winner bound itself → host can settle
+        if (isCreator()) { m_winnerAddr = o.value("addr").toString();
+                           log(QStringLiteral("winner bound on-zone — press settle to pay the pot")); }
     }
 }
 
@@ -395,6 +426,7 @@ void ZkGuessGameBackend::sealFromEntropy()
         sendEnvelope(QJsonObject{{"t","turn"},{"id",m_myId},{"turnId",tid},{"turnName",m_players.value(tid).name}});
     }
     log(QStringLiteral("sealed from everyone's entropy — start guessing"));
+    initPotIfBetting();   // host: if this room has a stake, create the on-zone pot now (needs the commitment)
 }
 
 void ZkGuessGameBackend::advanceTurn()
@@ -503,6 +535,7 @@ QString ZkGuessGameBackend::settleOnLez()
 {
     if (!won())      return QStringLiteral("nothing to settle yet");
     if (settling())  return QStringLiteral("already settling");
+    if (m_bet > 0 && !m_gameId.isEmpty()) return settlePotOnLez();  // pot game → 3-way split payout
 
     QString bin = qEnvironmentVariable("SETTLE_BIN");
     if (bin.isEmpty() || !QFileInfo::exists(bin)) {
@@ -562,6 +595,188 @@ QString ZkGuessGameBackend::settleOnLez()
     });
     // run at lower priority (nice) so the capped prover threads yield to interactive work
     p->start(QStringLiteral("nice"), {QStringLiteral("-n"), QStringLiteral("15"), bin});
+    return QString();
+}
+
+// ── TOK pot (EPIC D) — each on-zone step shells out to the bundled `zkg_pot` binary ─────────────
+QString ZkGuessGameBackend::potBinary() const
+{
+    const QString env = qEnvironmentVariable("ZKG_POT_BIN");
+    if (!env.isEmpty() && QFileInfo::exists(env)) return env;
+    const QString bundled = pluginDir() + QStringLiteral("/zkg_pot");
+    if (!pluginDir().isEmpty() && QFileInfo::exists(bundled)) return bundled;
+    return QString();
+}
+
+QString ZkGuessGameBackend::potHome() const
+{
+    QString base = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (base.isEmpty()) base = QDir::tempPath();
+    const QString h = base + QStringLiteral("/zk-guess/pot-wallet");
+    QDir().mkpath(h);
+    return h;
+}
+
+void ZkGuessGameBackend::recomputePot()
+{
+    int sum = 0;
+    for (auto it = m_stakes.constBegin(); it != m_stakes.constEnd(); ++it) sum += it.value();
+    setPotTotal(sum);
+}
+
+// Common env (persistent wallet, sequencer, bundled r0vm, shared room id, prover cap) + per-action
+// ZKG_* extras → run `zkg_pot <action>` at low priority, hand the merged output back on finish.
+// Real mode by default; set ZKG_POT_DEV=1 in the launch env for the fast dev-mode sequencer.
+void ZkGuessGameBackend::launchPot(const QString& action, const QHash<QString,QString>& extra,
+                                   std::function<void(int, const QString&)> cb)
+{
+    const QString bin = potBinary();
+    if (bin.isEmpty())        { setLastError(QStringLiteral("pot: zkg_pot binary not bundled")); cb(-1, QString()); return; }
+    if (roomCode().isEmpty()) { setLastError(QStringLiteral("pot: no room id")); cb(-1, QString()); return; }
+
+    QProcessEnvironment penv = QProcessEnvironment::systemEnvironment();
+    if (qEnvironmentVariableIsSet("ZKG_POT_DEV")) penv.insert(QStringLiteral("RISC0_DEV_MODE"), QStringLiteral("1"));
+    else                                          penv.remove(QStringLiteral("RISC0_DEV_MODE"));   // real mode
+    penv.insert(QStringLiteral("LEE_WALLET_HOME_DIR"), potHome());
+    const QString r0vm = QFileInfo(bin).absolutePath() + QStringLiteral("/r0vm");
+    if (QFileInfo::exists(r0vm)) penv.insert(QStringLiteral("RISC0_SERVER_PATH"), r0vm);
+    if (!penv.contains(QStringLiteral("NSSA_SEQUENCER_URL")))
+        penv.insert(QStringLiteral("NSSA_SEQUENCER_URL"), QStringLiteral("https://sequencer.logos.live"));
+    penv.insert(QStringLiteral("ZKG_ROOM_ID"), roomCode());   // shared invite code → same pot PDA for everyone
+    const int cores = qMax(1, QThread::idealThreadCount());
+    penv.insert(QStringLiteral("RAYON_NUM_THREADS"), QString::number(qMax(2, cores / 2)));
+    for (auto it = extra.constBegin(); it != extra.constEnd(); ++it) penv.insert(it.key(), it.value());
+
+    auto* p = new QProcess(this);
+    p->setProcessEnvironment(penv);
+    p->setProcessChannelMode(QProcess::MergedChannels);
+    connect(p, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
+            [p, cb](int code, QProcess::ExitStatus) {
+        const QString out = QString::fromUtf8(p->readAll());
+        p->deleteLater();
+        cb(code, out);
+    });
+    p->start(QStringLiteral("nice"), {QStringLiteral("-n"), QStringLiteral("15"), bin, action});
+}
+
+// Host: after the number is sealed, create the on-zone pot PDA + commit host/deadline, then tell the room.
+void ZkGuessGameBackend::initPotIfBetting()
+{
+    if (!isCreator() || m_bet <= 0 || m_potInitStarted) return;
+    if (m_onZoneAddr.isEmpty()) { log(QStringLiteral("pot: host must fund on-zone first")); return; }
+    m_potInitStarted = true;
+    launchPot(QStringLiteral("init"),
+              { {QStringLiteral("ZKG_SECRET"), QString::number(m_secret)},
+                {QStringLiteral("ZKG_BLIND"),  QString::number(m_blind)},
+                {QStringLiteral("ZKG_HOST_ADDR"), m_onZoneAddr},
+                {QStringLiteral("ZKG_HOST_BPS"), QString::number(hostBps())} },
+              [this](int code, const QString& out) {
+        const auto m = QRegularExpression(QStringLiteral("game\\s+(\\S+)")).match(out);
+        if (code == 0 && m.hasMatch()) {
+            m_gameId = m.captured(1);
+            setGameId(m_gameId); setPotReady(true);
+            sendEnvelope(QJsonObject{{"t","potready"},{"id",m_myId},{"game",m_gameId}});
+            log(QStringLiteral("pot open on-zone — everyone place your bets"));
+        } else {
+            m_potInitStarted = false;
+            setLastError(QStringLiteral("pot init failed (exit %1)").arg(code));
+        }
+    });
+}
+
+// Host: pay the pot three ways (winner 92.5% / host 5% / builder 2.5%) in one atomic settle_win.
+QString ZkGuessGameBackend::settlePotOnLez()
+{
+    if (!isCreator())           return QStringLiteral("the host settles the pot");
+    if (m_winnerAddr.isEmpty()) return QStringLiteral("waiting for the winner to bind on-zone");
+    if (m_onZoneAddr.isEmpty()) return QStringLiteral("host must fund on-zone first");
+    setSettleError(QString()); setSettleBlock(-1);
+    setSettling(true); setSettleStartMs(double(nowMs()));
+    launchPot(QStringLiteral("settle"),
+              { {QStringLiteral("ZKG_GAME_ID"), m_gameId},
+                {QStringLiteral("ZKG_WINNER_ADDR"), m_winnerAddr},
+                {QStringLiteral("ZKG_HOST_ADDR"), m_onZoneAddr} },
+              [this](int code, const QString& out) {
+        setSettling(false);
+        int blk = -1; auto itB = QRegularExpression(QStringLiteral("block\\s+(\\d+)")).globalMatch(out);
+        while (itB.hasNext()) blk = itB.next().captured(1).toInt();
+        QString tx; auto itT = QRegularExpression(QStringLiteral("tx\\s+([0-9a-fA-F]{16,})")).globalMatch(out);
+        while (itT.hasNext()) tx = itT.next().captured(1);
+        if (code == 0 && blk >= 0) { setSettleBlock(blk); setSettleTx(tx); setPayoutTx(tx); }
+        else setSettleError(QStringLiteral("pot settle failed (exit %1)").arg(code));
+    });
+    return QString();
+}
+
+QString ZkGuessGameBackend::setBet(int amount)
+{
+    if (!isCreator()) return QStringLiteral("only the host sets the stake");
+    if (started())    return QStringLiteral("game already started");
+    if (amount < 0)   amount = 0;
+    m_bet = amount; setBetAmount(amount);
+    sendEnvelope(QJsonObject{{"t","bet"},{"id",m_myId},{"amount",amount}});
+    log(amount > 0 ? QStringLiteral("stake set to %1 TOK — fund + place your bet").arg(amount)
+                   : QStringLiteral("free game (no stake)"));
+    return QString();
+}
+
+QString ZkGuessGameBackend::fundOnZone()
+{
+    if (onZoneFunded()) return QStringLiteral("already funded");
+    if (stakeState() == QLatin1String("funding")) return QStringLiteral("funding…");
+    setStakeState(QStringLiteral("funding"));
+    launchPot(QStringLiteral("fund"), {}, [this](int code, const QString& out) {
+        const auto mA = QRegularExpression(QStringLiteral("addr\\s+(\\S+)")).match(out);
+        const auto mB = QRegularExpression(QStringLiteral("balance\\s+(\\d+)")).match(out);
+        if (code == 0 && mA.hasMatch()) {
+            m_onZoneAddr = mA.captured(1);
+            setMyOnZoneAddr(m_onZoneAddr); setOnZoneFunded(true);
+            if (mB.hasMatch()) setMyBalance(mB.captured(1).toInt());
+            setStakeState(QStringLiteral("none"));
+            sendEnvelope(QJsonObject{{"t","zaddr"},{"id",m_myId},{"addr",m_onZoneAddr}});   // tell the room my payout addr
+            if (isCreator()) initPotIfBetting();   // host funded after the seal → create the pot now
+        } else {
+            setStakeState(QStringLiteral("none"));
+            setLastError(QStringLiteral("funding failed (exit %1)").arg(code));
+        }
+    });
+    return QString();
+}
+
+QString ZkGuessGameBackend::placeBet()
+{
+    if (m_bet <= 0)                              return QStringLiteral("no stake in this room");
+    if (!onZoneFunded())                         return QStringLiteral("fund your account first");
+    if (!potReady() || m_gameId.isEmpty())       return QStringLiteral("pot not open yet");
+    if (stakeState() == QLatin1String("staked")) return QStringLiteral("already staked");
+    setStakeState(QStringLiteral("staking"));
+    launchPot(QStringLiteral("stake"),
+              { {QStringLiteral("ZKG_GAME_ID"), m_gameId}, {QStringLiteral("ZKG_BET"), QString::number(m_bet)} },
+              [this](int code, const QString& out) {
+        if (code == 0) {
+            setStakeState(QStringLiteral("staked"));
+            const auto m = QRegularExpression(QStringLiteral("tx\\s+([0-9a-fA-F]{16,})")).match(out);
+            if (m.hasMatch()) setStakeTx(m.captured(1));
+            sendEnvelope(QJsonObject{{"t","staked"},{"id",m_myId},{"addr",m_onZoneAddr},{"amount",m_bet}});
+            if (!m_onZoneAddr.isEmpty()) { m_stakes.insert(m_onZoneAddr, m_bet); recomputePot(); }
+        } else {
+            setStakeState(QStringLiteral("none"));
+            setLastError(QStringLiteral("stake failed (exit %1)").arg(code));
+        }
+    });
+    return QString();
+}
+
+QString ZkGuessGameBackend::refundOnLez()
+{
+    if (stakeState() != QLatin1String("staked")) return QStringLiteral("nothing staked to refund");
+    if (m_gameId.isEmpty())                      return QStringLiteral("no game to refund from");
+    setStakeState(QStringLiteral("refunding"));
+    launchPot(QStringLiteral("refund"), { {QStringLiteral("ZKG_GAME_ID"), m_gameId} },
+              [this](int code, const QString&) {
+        setStakeState(code == 0 ? QStringLiteral("refunded") : QStringLiteral("staked"));
+        if (code != 0) setLastError(QStringLiteral("refund failed (exit %1)").arg(code));
+    });
     return QString();
 }
 

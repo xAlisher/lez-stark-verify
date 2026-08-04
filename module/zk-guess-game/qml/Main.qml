@@ -180,6 +180,78 @@ Rectangle {
         }
         Rectangle { Layout.fillWidth: true; height: 1; color: "#1c2622" }
 
+        // ── TOK pot (EPIC D) — bet TOK, the proven winner takes the pot (minus a fixed dev + host cut) ──
+        Rectangle {
+            Layout.fillWidth: true; radius: 8; color: "#0e1613"; border.color: "#1c2622"; border.width: 1
+            visible: backend && backend.inRoom && (backend.isCreator ? !backend.started || backend.betAmount > 0 : backend.betAmount > 0)
+            implicitHeight: potCol.implicitHeight + 16
+            ColumnLayout {
+                id: potCol
+                anchors.fill: parent; anchors.margins: 8; spacing: 6
+
+                RowLayout {   // host, before start: set the room stake
+                    visible: backend && backend.isCreator && !backend.started
+                    spacing: 8
+                    Text { text: "💰 stake per player"; color: root.fg; font.family: root.mono; font.pixelSize: 12 }
+                    TextField {
+                        id: betField; implicitWidth: 90; placeholderText: "0 = free"
+                        inputMethodHints: Qt.ImhDigitsOnly; font.family: root.mono; color: root.fg
+                        text: backend && backend.betAmount > 0 ? backend.betAmount : ""
+                    }
+                    Text { text: "TOK"; color: root.dim; font.family: root.mono; font.pixelSize: 12 }
+                    GButton { text: "Set stake"; onClicked: backend && backend.setBet(parseInt(betField.text) || 0) }
+                }
+
+                RowLayout {   // any player: pot total + fund + place bet
+                    visible: backend && backend.betAmount > 0
+                    spacing: 8
+                    Text {
+                        text: "🏆 pot " + (backend ? backend.potTotal : 0) + " TOK  ·  stake " + (backend ? backend.betAmount : 0)
+                        color: root.amber; font.family: root.mono; font.pixelSize: 13; font.bold: true
+                    }
+                    Item { Layout.fillWidth: true }
+                    GButton {
+                        visible: backend && !backend.onZoneFunded
+                        text: backend && backend.stakeState === "funding" ? "funding…" : "Fund from faucet"
+                        enabled: backend && backend.stakeState !== "funding"
+                        onClicked: backend && backend.fundOnZone()
+                    }
+                    GButton {
+                        visible: backend && backend.onZoneFunded && backend.stakeState !== "staked"
+                                 && backend.stakeState !== "refunded" && backend.stakeState !== "refunding"
+                        text: backend && backend.stakeState === "staking" ? "staking…"
+                              : (backend && backend.potReady ? "Place bet (" + backend.betAmount + ")" : "waiting for pot…")
+                        enabled: backend && backend.potReady && backend.stakeState !== "staking"
+                        onClicked: backend && backend.placeBet()
+                    }
+                    RowLayout {
+                        visible: backend && backend.stakeState === "staked"; spacing: 6
+                        Text { text: "✓ staked"; color: root.teal; font.family: root.mono; font.pixelSize: 12 }
+                        GButton { visible: backend && !backend.won; text: "refund"; padding: 3
+                                  onClicked: backend && backend.refundOnLez() }
+                    }
+                    Text {
+                        visible: backend && backend.stakeState === "refunded"
+                        text: "↩ refunded"; color: root.dim; font.family: root.mono; font.pixelSize: 12
+                    }
+                }
+
+                Text {   // split preview
+                    visible: backend && backend.betAmount > 0
+                    Layout.fillWidth: true; wrapMode: Text.WordWrap
+                    text: "winner " + (100 - (backend.hostBps + backend.builderBps) / 100) + "%  ·  host "
+                          + (backend.hostBps / 100) + "%  ·  dev " + (backend.builderBps / 100) + "%  — split on-zone, proven"
+                    color: root.dim; font.family: root.mono; font.pixelSize: 10
+                }
+                Text {   // payout receipt
+                    visible: backend && backend.payoutTx !== ""
+                    Layout.fillWidth: true; wrapMode: Text.WrapAnywhere
+                    text: "✓ pot paid on-zone — settlement tx " + (backend ? backend.payoutTx : "")
+                    color: "#7ef0c4"; font.family: root.mono; font.pixelSize: 11
+                }
+            }
+        }
+
         RowLayout {
             Layout.fillWidth: true; Layout.fillHeight: true; spacing: 12
 
@@ -431,10 +503,13 @@ Rectangle {
                         Layout.fillWidth: true; spacing: 6
                         Text { text: "Settle this win on the LEZ"; color: root.fg; font.family: root.mono
                                font.pixelSize: 14; font.bold: true; Layout.alignment: Qt.AlignHCenter }
-                        Text { text: "a real STARK, verified on-zone — takes ~16 min, runs in the background"
+                        Text { text: backend && backend.betAmount > 0
+                                     ? "the host pays the pot three ways on-zone — winner " + (100 - (backend.hostBps + backend.builderBps)/100) + "% / host " + (backend.hostBps/100) + "% / dev " + (backend.builderBps/100) + "% — a real STARK, ~16 min"
+                                     : "a real STARK, verified on-zone — takes ~16 min, runs in the background"
                                color: root.dim; font.family: root.mono; font.pixelSize: 11; wrapMode: Text.WordWrap
                                horizontalAlignment: Text.AlignHCenter; Layout.fillWidth: true }
-                        GButton { text: "Settle on LEZ"; Layout.alignment: Qt.AlignHCenter
+                        GButton { text: backend && backend.betAmount > 0 ? "Settle pot on LEZ" : "Settle on LEZ"
+                                  Layout.alignment: Qt.AlignHCenter
                                   onClicked: backend && backend.settleOnLez() }
                     }
 
