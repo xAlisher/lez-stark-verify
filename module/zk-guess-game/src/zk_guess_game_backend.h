@@ -4,6 +4,7 @@
 #include <QString>
 #include <QStringList>
 #include <QHash>
+#include <QSet>
 #include <QByteArray>
 #include <QJsonArray>
 
@@ -54,6 +55,8 @@ private:
     QString zkVerifyBin() const;
     void sealFromEntropy();                                     // host: fold all contributions → seal the number
     void advanceTurn();                                         // host: move to the next player + broadcast
+    void broadcastRoster();                                     // host: broadcast the authoritative roster + turn order (#30)
+    void refreshTurnOrder();                                    // host: rebuild turn order to include every non-host player (#30)
 
     quint64               m_hostSeed = 0;      // host's own committed entropy (kept secret)
     QHash<QString,QString> m_contribs;         // player id → mouse-draw contribution
@@ -81,6 +84,9 @@ private:
     QTimer* m_prune     = nullptr;
     bool    m_eventsWired = false;
     bool    m_nodeUp      = false;
+
+    int           m_msgSeq = 0;    // per-message sequence → unique envelope id (idempotency, #29)
+    QSet<QString> m_seenMids;      // received envelope ids already processed → drop duplicate delivery
 };
 
 #endif // ZK_GUESS_GAME_BACKEND_H

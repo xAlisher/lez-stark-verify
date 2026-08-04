@@ -161,13 +161,14 @@ void ZkGuessGameBackend::bringUpNodeThenJoin()
             m_prune = new QTimer(this);
             connect(m_prune, &QTimer::timeout, this, [this]{
                 pruneRoster();
-                // Turn broadcasts go over best-effort Waku — a single dropped "turn" leaves that
-                // player's currentTurnId stale forever (no slider, game stuck). The host re-asserts
-                // the current turn every tick; clients already in sync no-op (change-guarded setter),
-                // a client that missed it recovers within PRUNE_MS.
-                if (isCreator() && started() && !won() && !currentTurnId().isEmpty())
-                    sendEnvelope(QJsonObject{{"t","turn"},{"id",m_myId},
-                                 {"turnId",currentTurnId()},{"turnName",currentTurnName()}});
+                // #30: best-effort Waku drops presence/turn envelopes → per-instance roster drift and
+                // players stuck off the turn rotation. The host re-broadcasts the AUTHORITATIVE roster +
+                // current turn every tick; clients converge within PRUNE_MS (change-guarded setters no-op
+                // when in sync) and any late player gets folded into the rotation via refreshTurnOrder().
+                if (isCreator()) {
+                    if (started() && !won()) refreshTurnOrder();
+                    broadcastRoster();
+                }
             });
             m_prune->start(PRUNE_MS);
         }
@@ -193,7 +194,9 @@ void ZkGuessGameBackend::wireEvents()
 
 void ZkGuessGameBackend::sendEnvelope(const QJsonObject& obj)
 {
-    const QByteArray plain = QJsonDocument(obj).toJson(QJsonDocument::Compact);
+    QJsonObject o = obj;
+    o.insert(QStringLiteral("mid"), m_myId + QChar('-') + QString::number(m_msgSeq++));   // unique id → receiver de-dup (#29)
+    const QByteArray plain = QJsonDocument(o).toJson(QJsonDocument::Compact);
     const QString env = StationCrypto::encryptAnnounce(m_key, plain, m_seg);
     if (env.isEmpty()) return;
     modules().delivery_module.sendAsync(m_topic, env.toUtf8(), [](LogosResult){}, Timeout());
@@ -234,6 +237,13 @@ void ZkGuessGameBackend::ingest(const QVariant& payload)
     const QString id = o.value("id").toString();
     if (id.isEmpty() || id == m_myId) return;   // ignore self-echo
 
+    const QString mid = o.value("mid").toString();   // #29: the delivery layer (Waku relay+store) can re-deliver
+    if (!mid.isEmpty()) {                             // the same envelope → process each unique id exactly once.
+        if (m_seenMids.contains(mid)) return;
+        m_seenMids.insert(mid);
+        if (m_seenMids.size() > 1024) m_seenMids.clear();   // coarse memory bound
+    }
+
     if (t == QLatin1String("presence")) {
         m_players[id] = { o.value("name").toString(), o.value("role").toString(), nowMs() };
         if (!isCreator() && roomName().isEmpty()) {           // joiner learns the room name from the host
@@ -242,6 +252,10 @@ void ZkGuessGameBackend::ingest(const QVariant& payload)
         }
         qDebug() << "zk_guess_game: presence from" << id << o.value("name").toString() << "roster now" << m_players.size();
         publishRoster();
+        if (isCreator()) {                    // #30: host is the source of truth — fold the (possibly late) player
+            if (started()) refreshTurnOrder(); //      into the turn rotation and push the authoritative roster out
+            broadcastRoster();                 //      so every instance converges (no per-instance roster drift).
+        }
     } else if (t == QLatin1String("chat")) {
         QJsonObject m{{"id",id},{"name",o.value("name").toString()},
                       {"text",o.value("text").toString()},{"ts",o.value("ts")}};
@@ -296,6 +310,25 @@ void ZkGuessGameBackend::ingest(const QVariant& payload)
         }
         setCurrentTurnId(newTid);
         setCurrentTurnName(o.value("turnName").toString());
+    } else if (t == QLatin1String("roster")) {
+        // #30: the host is authoritative — mirror its full roster (and turn) so a missed presence
+        // announcement (flaky delivery) self-heals within one broadcast instead of persisting.
+        if (!isCreator()) {
+            const QJsonArray ps = o.value("players").toArray();
+            QHash<QString, Player> next;
+            for (const auto& pv : ps) {
+                const QJsonObject p = pv.toObject();
+                const QString pid = p.value("id").toString();
+                if (pid.isEmpty()) continue;
+                next.insert(pid, { p.value("name").toString(), p.value("role").toString(), nowMs() });
+            }
+            if (!next.contains(m_myId))   // stay in my own roster even before the host has seen me
+                next.insert(m_myId, { m_display, QStringLiteral("player"), nowMs() });
+            m_players = next;
+            publishRoster();
+            const QString tid = o.value("turnId").toString();
+            if (!tid.isEmpty()) { setCurrentTurnId(tid); setCurrentTurnName(o.value("turnName").toString()); }
+        }
     }
 }
 
@@ -381,19 +414,16 @@ void ZkGuessGameBackend::sealFromEntropy()
     setStarted(true);
     sendEnvelope(QJsonObject{{"t","seal"},{"id",m_myId},{"commitment",c}});
 
-    // establish a deterministic turn order over the non-host players + open the first turn.
-    QList<QString> ids;
-    for (auto it = m_players.constBegin(); it != m_players.constEnd(); ++it)
-        if (it.value().role != QLatin1String("creator")) ids.append(it.key());
-    ids.sort();
-    m_turnOrder = ids;
-    m_turnIdx = 0;
+    // establish the turn order over ALL non-host players + open the first turn (host-authoritative).
+    m_turnIdx = -1;
+    refreshTurnOrder();
     if (!m_turnOrder.isEmpty()) {
+        m_turnIdx = 0;
         const QString tid = m_turnOrder.at(0);
         setCurrentTurnId(tid);
         setCurrentTurnName(m_players.value(tid).name);
-        sendEnvelope(QJsonObject{{"t","turn"},{"id",m_myId},{"turnId",tid},{"turnName",m_players.value(tid).name}});
     }
+    broadcastRoster();   // #30: push the authoritative roster + the first turn to everyone
     log(QStringLiteral("sealed from everyone's entropy — start guessing"));
 }
 
@@ -404,7 +434,38 @@ void ZkGuessGameBackend::advanceTurn()
     const QString tid = m_turnOrder.at(m_turnIdx);
     setCurrentTurnId(tid);
     setCurrentTurnName(m_players.value(tid).name);
-    sendEnvelope(QJsonObject{{"t","turn"},{"id",m_myId},{"turnId",tid},{"turnName",m_players.value(tid).name}});
+    broadcastRoster();   // #30: the roster broadcast carries the new turn too
+}
+
+// #30: rebuild the turn order to include EVERY non-host player currently in the roster, preserving
+// whose turn it is (by id). A player who was missing/desynced at seal time gets folded in here so
+// they can actually take a turn instead of spectating forever.
+void ZkGuessGameBackend::refreshTurnOrder()
+{
+    QStringList ids;
+    for (auto it = m_players.constBegin(); it != m_players.constEnd(); ++it)
+        if (it.value().role != QLatin1String("creator")) ids.append(it.key());
+    ids.sort();
+    const QString curId = (m_turnIdx >= 0 && m_turnIdx < m_turnOrder.size()) ? m_turnOrder.at(m_turnIdx) : QString();
+    m_turnOrder = ids;
+    if (m_turnOrder.isEmpty()) { m_turnIdx = -1; return; }
+    const int i = m_turnOrder.indexOf(curId);
+    m_turnIdx = (i >= 0) ? i : 0;
+}
+
+// #30: the host broadcasts the authoritative roster (+ current turn). Every non-host mirrors it, so a
+// missed presence/turn envelope self-heals on the next tick instead of leaving a permanent gap.
+void ZkGuessGameBackend::broadcastRoster()
+{
+    if (!isCreator()) return;
+    QJsonArray ps;
+    for (auto it = m_players.constBegin(); it != m_players.constEnd(); ++it)
+        ps.append(QJsonObject{{"id",it.key()},{"name",it.value().name},{"role",it.value().role}});
+    QJsonArray to;
+    for (const QString& id : m_turnOrder) to.append(id);
+    QJsonObject o{{"t","roster"},{"id",m_myId},{"players",ps},{"turnOrder",to}};
+    if (!currentTurnId().isEmpty()) { o.insert("turnId", currentTurnId()); o.insert("turnName", currentTurnName()); }
+    sendEnvelope(o);
 }
 
 QString ZkGuessGameBackend::submitGuess(int guess)
