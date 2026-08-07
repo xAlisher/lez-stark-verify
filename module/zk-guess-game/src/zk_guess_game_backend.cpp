@@ -167,8 +167,21 @@ void ZkGuessGameBackend::bringUpNodeThenJoin()
                 // current turn every tick; clients converge within PRUNE_MS (change-guarded setters no-op
                 // when in sync) and any late player gets folded into the rotation via refreshTurnOrder().
                 if (isCreator()) {
+                    // #seal-heal: a dropped entropy envelope (or a ghost that just got pruned) leaves the
+                    // host stuck "collecting" forever. Re-check the seal condition every tick so it fires as
+                    // soon as expected==contribs — whether via a player's re-send or a shrunk roster.
+                    if (collectingEntropy() && !started()) {
+                        int expected = 0;
+                        for (auto it = m_players.constBegin(); it != m_players.constEnd(); ++it)
+                            if (it.value().role != QLatin1String("creator")) ++expected;
+                        if (expected > 0 && m_contribs.size() >= expected) sealFromEntropy();
+                    }
                     if (started() && !won()) refreshTurnOrder();
                     broadcastRoster();
+                } else if (collectingEntropy() && entropySubmitted() && !started() && !m_myContrib.isEmpty()) {
+                    // #seal-heal (player side): re-send my draw until I see the seal, so a lost entropy
+                    // envelope doesn't strand the whole room. Idempotent on the host (keyed by my id).
+                    sendEnvelope(QJsonObject{{"t","entropy"},{"id",m_myId},{"name",m_display},{"contrib",m_myContrib}});
                 }
             });
             m_prune->start(PRUNE_MS);
@@ -267,7 +280,7 @@ void ZkGuessGameBackend::ingest(const QVariant& payload)
         setCollectingEntropy(true);
         log(QStringLiteral("host wants entropy — draw to stir the number"));
     } else if (t == QLatin1String("entropy")) {
-        if (isCreator()) {              // host collects; seal once every player has drawn
+        if (isCreator() && !started()) {   // host collects; seal once every player has drawn (never re-seal)
             m_contribs.insert(id, o.value("contrib").toString());
             int expected = 0;
             for (auto it = m_players.constBegin(); it != m_players.constEnd(); ++it)
@@ -376,6 +389,14 @@ void ZkGuessGameBackend::ingest(const QVariant& payload)
                             setProvingName(QString()); setProvingGuess(-1); break;
                         }
             }
+            // pot self-heal: adopt the host's stake + open pot even if I missed the one-shot "bet"/"potready".
+            if (o.contains(QLatin1String("bet")) && m_bet != o.value("bet").toInt()) {
+                m_bet = o.value("bet").toInt(); setBetAmount(m_bet);
+            }
+            if (o.contains(QLatin1String("game")) && m_gameId.isEmpty()) {
+                m_gameId = o.value("game").toString(); setGameId(m_gameId); setPotReady(true);
+            }
+            if (o.contains(QLatin1String("pot"))) setPotTotal(o.value("pot").toInt());
         }
     }
 }
@@ -439,6 +460,7 @@ QString ZkGuessGameBackend::submitEntropy(QString contribution)
     if (!collectingEntropy()) return QStringLiteral("not collecting entropy");
     if (entropySubmitted())  return QStringLiteral("already submitted");
     setEntropySubmitted(true);
+    m_myContrib = contribution;   // #seal-heal: kept so the prune tick can re-send until the host seals
     sendEnvelope(QJsonObject{{"t","entropy"},{"id",m_myId},{"name",m_display},{"contrib",contribution}});
     return QString();
 }
@@ -515,6 +537,11 @@ void ZkGuessGameBackend::broadcastRoster()
     QJsonObject o{{"t","roster"},{"id",m_myId},{"players",ps},{"turnOrder",to}};
     if (!currentTurnId().isEmpty()) { o.insert("turnId", currentTurnId()); o.insert("turnName", currentTurnName()); }
     if (!m_turns.isEmpty()) o.insert("turns", m_turns);   // #31: carry the authoritative turn log → missed verdicts self-heal
+    // pot: carry the room stake + open pot so a player who joined AFTER the one-shot "bet"/"potready"
+    // still learns them (else their pot panel — fund/stake — never appears). Same self-heal as the roster.
+    if (m_bet > 0) o.insert("bet", m_bet);
+    if (!m_gameId.isEmpty()) o.insert("game", m_gameId);
+    if (potTotal() > 0) o.insert("pot", potTotal());
     sendEnvelope(o);
 }
 
@@ -742,6 +769,7 @@ void ZkGuessGameBackend::launchPot(const QString& action, const QHash<QString,QS
 void ZkGuessGameBackend::initPotIfBetting()
 {
     if (!isCreator() || m_bet <= 0 || m_potInitStarted) return;
+    if (sealedCommitment().isEmpty()) return;   // pot binds to C — wait for the seal (host may fund pre-seal)
     if (m_onZoneAddr.isEmpty()) { log(QStringLiteral("pot: host must fund on-zone first")); return; }
     m_potInitStarted = true;
     launchPot(QStringLiteral("init"),

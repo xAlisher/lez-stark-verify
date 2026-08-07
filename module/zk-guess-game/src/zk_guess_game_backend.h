@@ -76,6 +76,7 @@ private:
 
     quint64               m_hostSeed = 0;      // host's own committed entropy (kept secret)
     QHash<QString,QString> m_contribs;         // player id → mouse-draw contribution
+    QString               m_myContrib;         // my own submitted contribution → re-send until sealed (#seal-heal)
     QStringList           m_turnOrder;         // ordered non-host player ids (host-authoritative)
     int                   m_turnIdx = -1;
 

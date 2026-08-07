@@ -196,7 +196,9 @@ Rectangle {
                     TextField {
                         id: betField; implicitWidth: 90; placeholderText: "0 = free"
                         inputMethodHints: Qt.ImhDigitsOnly; font.family: root.mono; color: root.fg
+                        placeholderTextColor: root.dim; leftPadding: 8; rightPadding: 8
                         text: backend && backend.betAmount > 0 ? backend.betAmount : ""
+                        background: Rectangle { color: "#0f1614"; border.color: "#1c2622"; radius: 4 }
                     }
                     Text { text: "TOK"; color: root.dim; font.family: root.mono; font.pixelSize: 12 }
                     GButton { text: "Set stake"; onClicked: backend && backend.setBet(parseInt(betField.text) || 0) }
@@ -217,7 +219,7 @@ Rectangle {
                         onClicked: backend && backend.fundOnZone()
                     }
                     GButton {
-                        visible: backend && backend.onZoneFunded && backend.stakeState !== "staked"
+                        visible: backend && !backend.isCreator && backend.onZoneFunded && backend.stakeState !== "staked"
                                  && backend.stakeState !== "refunded" && backend.stakeState !== "refunding"
                         text: backend && backend.stakeState === "staking" ? "staking…"
                               : (backend && backend.potReady ? "Place bet (" + backend.betAmount + ")" : "waiting for pot…")
