@@ -1,5 +1,8 @@
 # lez-stark-verify — ZK Guess
 
+> This is a personal, experimental hobby project. It is not an official Logos product. Not audited.
+
+
 A provably-fair, multiplayer number-guessing party game on the full Logos stack — and the R&D
 that proves **STARK proof verification on the Logos Execution Zone (LEZ)** is real, on hardware we
 control. Rooms over **Logos Messaging**, per-turn honesty via **RISC0 STARK** proofs, and win
