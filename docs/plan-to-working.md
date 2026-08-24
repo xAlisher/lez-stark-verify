@@ -20,12 +20,14 @@ Everything below is ordered by what that sentence is blocked on, not by what is 
 | Per-turn honesty (dev-mode STARK) | **Works** — ~1–3 s, deliberate (ADR-0001) |
 | Seal-heal + pot self-heal | **Committed, compiles, never played** (`dbfc847`) — #30, wetware |
 | LEZ v0.2.4 compat | **Compiles + CHAIN-VERIFIED** (`c703c60`) — PP tx accepted by testnet 2026-08-24 |
-| On-zone win settlement | **Builds and submits** (fork `9a9ea26`, ADR-0008) — payout still manual |
-| Pot custody | **Proven** on Sneg (2×50 TOK → PDA → `vault claim` 100) — payout still **manual** |
+| On-zone win settlement | **PROVEN on testnet** (fork `ef3fd12`) — 2 real proofs, 19m04s, tx confirmed on chain |
+| Soundness (wrong secret) | **PROVEN on testnet** — guest halts in-guest, no receipt possible for a lie |
+| Pot 3-way split (fund→stake→win→settle) | **PROVEN on testnet** — 193/100/5/2/0, verified via direct RPC — payout still **manual** |
 | Own sequencer (`sequencer.logos.live`) | Up, but pre-0.2.1 — the workaround we want to retire (#34) |
 | Sneg sequencer | **Down** (port refused, host pings) |
 
-The gap between rows 4–6 is the whole job. **The game works; the money and the proof don't meet.**
+The gap between rows 4–6 is the whole job. **The game works; the money and the proof don't meet
+yet — but every individual mechanic they'd need to meet is now proven on chain (2026-08-24).**
 
 ---
 
@@ -108,7 +110,18 @@ The v0.2.4 bump compiles but is unproven, and the two bins that could prove it d
 3. **Restart the Sneg sequencer** only if a local zone is still wanted (needs `r0vm` on `PATH`).
    Muster's evidence suggests it may no longer be needed at all — see Phase 1.
 
-**Done when:** a tx hash from our program appears in a testnet block.
+**Done when:** a tx hash from our program appears in a testnet block. **✅ MET.**
+
+**Beyond the minimum acceptance, all three headless mechanics are now proven end to end on
+testnet** (2026-08-24, fork `ef3fd12`): `settle_win` (19m04s, 2 proofs, tx confirmed on chain),
+`e2e_submit`'s soundness check (17m45s, 3 proofs — a swapped commitment makes the guest halt with
+no receipt), and `pot_e2e`'s full lifecycle (~50min, 7 proofs — fund via Pinata mining → init_game
+→ stake×2 → record_win → settle_win → 3-way split 193/100/5/2/0, independently confirmed via direct
+`getAccountBalance` RPC, not just the harness's own printout). Two real bugs found and fixed along
+the way: **#44** (the default 5-block poll window races real proving and reports false failures —
+fixed across all five submitting bins) and **#45**, closed (`BUILDER_ADDR`'s registration didn't
+survive the 2026-08-05 re-genesis — fresh account minted, `zkg_builder_setup` made idempotent).
+**#38 and #41 are closed** as a result — see their comments for the full evidence.
 
 ### Phase 1 — Retire the private sequencer (#34)
 
@@ -145,8 +158,10 @@ This is the F↔D integration — #27, #24, #16, and #38 option 3 are all this o
 9. **Test the auth-transfer panic (finding 4) explicitly** before wiring it in: an owned-path or
    auth-transfer init followed by a foreign-path send, in one wallet, on testnet. If it fires, it
    fires in the pot path, and it is better found by a test than by three people mid-game.
-10. **Measure the real settlement cost once** (finding 5) and put the measured number in the README
-    in place of the current estimate.
+10. ~~**Measure the real settlement cost once**~~ **DONE 2026-08-24** — 19m04s for two real proofs,
+    measured on the release build, both txs confirmed on chain. README and ADR-0001 corrected
+    in place (#41, closed). Both prior published figures (~30–40 min, ~16 min/proof) were
+    overestimates.
 
 **Done when:** a win moves TOK to the winner with nobody typing `vault claim`.
 
