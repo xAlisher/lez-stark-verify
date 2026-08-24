@@ -238,6 +238,16 @@ Rectangle {
                     }
                 }
 
+                Text {   // #46/#47: name the stage instead of a bare spinner while an on-zone step
+                         // runs (muster's pattern) — the wait can legitimately take minutes if a
+                         // shared faucet claim has to retry, and this is what tells a stuck-looking
+                         // wait apart from an actually-stuck one.
+                    visible: backend && (backend.stakeState === "funding" || backend.stakeState === "staking") && backend.potStage !== ""
+                    Layout.fillWidth: true; wrapMode: Text.WordWrap
+                    text: "⏳ " + (backend ? backend.potStage : "")
+                    color: root.dim; font.family: root.mono; font.pixelSize: 11; font.italic: true
+                }
+
                 Text {   // split preview
                     visible: backend && backend.betAmount > 0
                     Layout.fillWidth: true; wrapMode: Text.WordWrap

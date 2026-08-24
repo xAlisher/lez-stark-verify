@@ -133,14 +133,20 @@ void ZkGuessGameBackend::bringUpNodeThenJoin()
 {
     if (m_nodeUp) { subscribe(m_topic); wireEvents(); announcePresence(); return; }
 
-    // logos.dev preset ships no bootstrap nodes → supply the entry multiaddrs explicitly (receiver #20).
-    QJsonArray entry{
-        QStringLiteral("/dns4/delivery-01.do-ams3.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmTUbnxLGT9JvV6mu9oPyDjqHK4Phs1VDJNUgESgNSkuby"),
-        QStringLiteral("/dns4/delivery-02.do-ams3.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmMK7PYygBtKUQ8EHp7EfaD3bCEsJrkFooK8RQ2PVpJprH"),
-        QStringLiteral("/dns4/delivery-01.gc-us-central1-a.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm4S1JYkuzDKLKQvwgAhZKs9otxXqt8SCGtB4hoJP1S397"),
-        QStringLiteral("/dns4/delivery-02.gc-us-central1-a.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm8Y9kgBNtjxvCnf1X6gnZJW5EGE4UwwCL3CCm55TwqBiH")
-    };
-    QJsonObject cfg{{"logLevel","INFO"},{"mode","Core"},{"preset","logos.dev"},{"relay",true},{"entryNodes",entry}};
+    // preset logos.test + relay:true (same fix as receiver_ui #90, identical symptom). We used to run
+    // logos.dev with four hardcoded bootstrap multiaddrs, because the deployed logos.dev preset ships
+    // NO bootstrap nodes (bootstrapNodes=0 -> currentPeerIds=[]). That hardcoded list is exactly what
+    // rotted: the logos.dev fleet migrated Waku cluster 2 -> 3 (logos-messaging/logos-delivery#4114)
+    // and nwaku drops every peer whose cluster differs ("different clusterId reported: 2 vs 3") -- the
+    // node dialled fine and was disconnected milliseconds later, a total silent outage (confirmed here
+    // 2026-08-24: all three isolated instances stuck at "delivery: disconnected", zero mesh peers).
+    //
+    // logos.test is the network upstream actually guarantees ("logos.dev is subtle to change at any
+    // moment" -- logos-co/logos-delivery-module#84). It is on cluster 2, which is what we already
+    // send, so no clusterId override is needed. It SHIPS ITS OWN bootstrap nodes, so the entryNodes
+    // list goes away entirely and peer exchange works -- receiver_ui measured a 5m soak: 6/6 peers
+    // held, 0 cluster mismatches, 0 disconnects, 7 further peers discovered.
+    QJsonObject cfg{{"logLevel","INFO"},{"mode","Core"},{"preset","logos.test"},{"relay",true}};
     const QString cfgJson = QString::fromUtf8(QJsonDocument(cfg).toJson(QJsonDocument::Compact));
 
     setConnectionStatus(QStringLiteral("connecting"));
@@ -741,6 +747,7 @@ void ZkGuessGameBackend::launchPot(const QString& action, const QHash<QString,QS
     if (bin.isEmpty())        { setLastError(QStringLiteral("pot: zkg_pot binary not bundled")); cb(-1, QString()); return; }
     if (roomCode().isEmpty()) { setLastError(QStringLiteral("pot: no room id")); cb(-1, QString()); return; }
 
+    setPotStage(QStringLiteral("starting"));
     QProcessEnvironment penv = QProcessEnvironment::systemEnvironment();
     if (qEnvironmentVariableIsSet("ZKG_POT_DEV")) penv.insert(QStringLiteral("RISC0_DEV_MODE"), QStringLiteral("1"));
     else                                          penv.remove(QStringLiteral("RISC0_DEV_MODE"));   // real mode
@@ -757,9 +764,39 @@ void ZkGuessGameBackend::launchPot(const QString& action, const QHash<QString,QS
     auto* p = new QProcess(this);
     p->setProcessEnvironment(penv);
     p->setProcessChannelMode(QProcess::MergedChannels);
+    // #46/#47: name the stage while it runs, muster-style ("the stage label names what it is
+    // doing") -- a bare "funding..." label was indistinguishable from a hang during the ~12 min
+    // worst case a lost faucet race can take. Parse zkg_pot's own progress lines as they arrive
+    // (not just the final blob in the finished handler below) and surface them live via potStage.
+    auto full = std::make_shared<QByteArray>();
+    connect(p, &QProcess::readyReadStandardOutput, this, [this, p, full]{
+        full->append(p->readAllStandardOutput());
+        int nl;
+        while ((nl = full->indexOf('\n')) >= 0) {
+            const QString line = QString::fromUtf8(full->left(nl)).trimmed();
+            full->remove(0, nl + 1);
+            if (line.isEmpty()) continue;
+            static const QRegularExpression rePoll(QStringLiteral("^\\[.*Poll (\\d+)$"));
+            static const QRegularExpression reRetry(QStringLiteral("^claim attempt (\\d+) lost the faucet race"));
+            static const QRegularExpression reSync(QStringLiteral("^Syncing to block \\S+\\. Blocks to sync: (\\d+)"));
+            QRegularExpressionMatch m;
+            if ((m = rePoll.match(line)).hasMatch()) {
+                setPotStage(QStringLiteral("waiting for the chain to include this step (check %1)").arg(m.captured(1)));
+            } else if ((m = reRetry.match(line)).hasMatch()) {
+                setPotStage(QStringLiteral("someone else claimed first — trying again (attempt %1)").arg(m.captured(1).toInt() + 1));
+            } else if (line.startsWith(QStringLiteral("Starting poll for transaction"))) {
+                setPotStage(QStringLiteral("submitted — waiting for it to land on-zone"));
+            } else if ((m = reSync.match(line)).hasMatch() && m.captured(1).toInt() > 50) {
+                setPotStage(QStringLiteral("catching up to the chain tip (%1 blocks)").arg(m.captured(1)));
+            } else if (line.startsWith(QStringLiteral("addr "))) {
+                setPotStage(QStringLiteral("done"));
+            }
+        }
+    });
     connect(p, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
-            [p, cb](int code, QProcess::ExitStatus) {
-        const QString out = QString::fromUtf8(p->readAll());
+            [p, full, cb](int code, QProcess::ExitStatus) {
+        full->append(p->readAllStandardOutput());   // anything left unflushed without a trailing \n
+        const QString out = QString::fromUtf8(*full);
         p->deleteLater();
         cb(code, out);
     });
@@ -836,6 +873,7 @@ QString ZkGuessGameBackend::fundOnZone()
     launchPot(QStringLiteral("fund"), {}, [this](int code, const QString& out) {
         const auto mA = QRegularExpression(QStringLiteral("addr\\s+(\\S+)")).match(out);
         const auto mB = QRegularExpression(QStringLiteral("balance\\s+(\\d+)")).match(out);
+        setPotStage(QString());   // clear the live stage narration; the operation is over either way
         if (code == 0 && mA.hasMatch()) {
             m_onZoneAddr = mA.captured(1);
             setMyOnZoneAddr(m_onZoneAddr); setOnZoneFunded(true);
@@ -845,7 +883,14 @@ QString ZkGuessGameBackend::fundOnZone()
             if (isCreator()) initPotIfBetting();   // host funded after the seal → create the pot now
         } else {
             setStakeState(QStringLiteral("none"));
-            setLastError(QStringLiteral("funding failed (exit %1)").arg(code));
+            // #46: surface the real reason (e.g. "claim not included after 5 attempts: ...") instead
+            // of a bare exit code -- the last non-empty line is almost always zkg_pot's own
+            // anyhow::Context chain, which names the actual failure.
+            const QStringList lines = out.split(QChar('\n'), Qt::SkipEmptyParts);
+            const QString reason = lines.isEmpty() ? QString() : lines.last().trimmed();
+            setLastError(reason.isEmpty()
+                ? QStringLiteral("funding failed (exit %1)").arg(code)
+                : QStringLiteral("funding failed: %1").arg(reason));
         }
     });
     return QString();
