@@ -19,8 +19,8 @@ Everything below is ordered by what that sentence is blocked on, not by what is 
 | Room / entropy / seal / turns / win | **Works** — released as `zk_guess_game` 0.1.1, signed, in the catalog |
 | Per-turn honesty (dev-mode STARK) | **Works** — ~1–3 s, deliberate (ADR-0001) |
 | Seal-heal + pot self-heal | **Committed, compiles, never played** (`dbfc847`) — #30, wetware |
-| LEZ v0.2.4 compat | **Compiles everywhere** (`c703c60`) — **not proven against the chain** |
-| On-zone win settlement | **Broken** — `settle_win` doesn't build against the pot-era program (#38) |
+| LEZ v0.2.4 compat | **Compiles + CHAIN-VERIFIED** (`c703c60`) — PP tx accepted by testnet 2026-08-24 |
+| On-zone win settlement | **Builds and submits** (fork `9a9ea26`, ADR-0008) — payout still manual |
 | Pot custody | **Proven** on Sneg (2×50 TOK → PDA → `vault claim` 100) — payout still **manual** |
 | Own sequencer (`sequencer.logos.live`) | Up, but pre-0.2.1 — the workaround we want to retire (#34) |
 | Sneg sequencer | **Down** (port refused, host pings) |
@@ -97,10 +97,14 @@ The v0.2.4 bump compiles but is unproven, and the two bins that could prove it d
    The account-model unification is the part that matters: settlement and the pot are now on the
    same path, which is the precondition for step 8. Two environment fixes were needed to get here —
    `~/.risc0` was a dangling symlink into a cleaned tmp dir, and `r0vm` was never installed.
-2. **Run the acceptance test** from #33: a privacy-preserving tx from `zk-guess-program` accepted by
-   `testnet.lez.logos.co`. This is the first real proof that v0.2.4 matches the live circuit.
-   If it is rejected, fall back to `v0.2.2` — `lee/` is identical between them, so a rejection
-   would point somewhere other than the circuit.
+2. ~~**Run the acceptance test** from #33.~~ **DONE 2026-08-24 — PASSED.** A privacy-preserving tx
+   from `zk-guess-program` was accepted by `testnet.lez.logos.co` and is on chain:
+   `tx 3716ad3decd491da58b11ecddea265e68eb2d24491e5054b90257c1ff914eca0`, confirmed by
+   `getTransaction` **with a bogus-hash control returning `null`**. The `MethodNotFound` wall is
+   gone, ADR-0009's dating method is vindicated, and the v0.2.1 target we re-aimed off would have
+   failed this test. **No fallback to v0.2.2 needed.**
+   The run also exposed **#44**: the client reported failure for a settlement that had succeeded
+   (`seq_tx_poll_max_blocks: 5` vs ~75 s blocks) — fixed, and the deeper treatment is #42's.
 3. **Restart the Sneg sequencer** only if a local zone is still wanted (needs `r0vm` on `PATH`).
    Muster's evidence suggests it may no longer be needed at all — see Phase 1.
 
