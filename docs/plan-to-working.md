@@ -143,6 +143,19 @@ Phase 0 removes that reason, and Muster shows `WalletConfig`'s *default* already
    submitter still gets sealed within a prune tick; a player whose envelope is dropped is sealed
    anyway; a late joiner sees the pot panel; the creator has no "Place bet".
 
+**In progress 2026-08-24 — first live 3-instance run found two real bugs, both fixed:**
+- **#47** — `zkg_pot fund` stalled 12-14min under concurrent funding (host + player 2 funding at
+  once, the normal case). Root cause: Pinata's shared claim state races concurrent claimants; the
+  loser's tx is silently dropped and `poll_tx` can't tell rejected from pending, so it burns the
+  full budget. Fixed (fork `edf7579`): wait for our own register tx, retry the claim with an outer
+  180s deadline + jittered backoff (a lost race resolves in a block or two, not 12 min). Verified
+  live: real retries observed, real successes (265s, 497s) where the old binary took 779-847s or
+  failed outright.
+- **#46** — companion UI fix: added `potStage`, updated live by parsing `zkg_pot`'s own stdout,
+  shown next to the fund/bet buttons (module `e729459`). A legitimate multi-minute wait now says
+  *why* instead of looking identical to a hang. **Not yet visually confirmed rendering in the
+  running game** — that's a GUI look, wetware; everything else is headlessly proven.
+
 This needs hands and is already routed (#30, `ecodev#27`). It does not block Phases 0–1 and should
 be run against whatever build is current when someone has the time.
 
