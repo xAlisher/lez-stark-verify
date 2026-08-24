@@ -242,9 +242,9 @@ accounts (winner, B, host, builder, pot PDA), not trusted from the harness's own
   **Generalizable finding:** a re-genesis invalidates every baked account *registration*, not just
   the LEZ pin — same failure class and root cause as the private-sequencer problem (ADR-0003).
 
-**Closed on GitHub:** #38, #41, #45. **Board is now 28 open** (31 − 3 closed).
+**Closed on GitHub:** #38, #41, #45. **Board is now 30 open** (verified via `gh issue list`, not arithmetic).
 
-## Board (28 open, verified 2026-08-24)
+## Board (30 open, verified 2026-08-24)
 
 `#37` mirror fate · `#36` watch releases after v0.2.4 *(re-scoped 08-24; v0.2.2 folded into #33)* ·
 `#35` `package=` aliases permanent · `#34` retire own-sequencer *(unblocks only if #33 targets
