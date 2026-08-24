@@ -220,7 +220,31 @@ its phase tracker. New issues filed from it, most of them findings bought by `co
 
 **Board is now 31 open** (25 + #38–#43).
 
-## Board (31 open, verified 2026-08-24)
+## ✅ Mechanics fully proven on testnet — 2026-08-24 (later)
+
+All three headless mechanics verified end to end, real proving, public testnet, fork `ef3fd12`:
+
+| mechanic | result |
+|---|---|
+| win settlement (`settle_win`) | EXIT=0, 19m04s, 2 real proofs, both txs confirmed on chain |
+| soundness (`e2e_submit`) | EXIT=0, 17m45s, 3 real proofs — guest halts on a swapped commitment |
+| full pot lifecycle (`pot_e2e`) | EXIT=0, ~50min, 7 real proofs — 193/100/5/2/0 |
+
+The pot result was **independently confirmed via direct `getAccountBalance` RPC** against all five
+accounts (winner, B, host, builder, pot PDA), not trusted from the harness's own printout.
+
+**Two more real bugs found and fixed:**
+- **#44** — the SDK's default poll window (5 blocks, ~75s testnet blocks) races real proving and
+  reports failure for settlements that land. Fixed across all five tx-submitting bins.
+- **#45 (closed)** — `BUILDER_ADDR`'s registration didn't survive the 2026-08-05 testnet re-genesis
+  (a settle_win in-guest panic: "was modified but not claimed"). Fresh account minted, rebaked,
+  `zkg_builder_setup` made idempotent + mnemonic-persisting so this class of loss can't recur.
+  **Generalizable finding:** a re-genesis invalidates every baked account *registration*, not just
+  the LEZ pin — same failure class and root cause as the private-sequencer problem (ADR-0003).
+
+**Closed on GitHub:** #38, #41, #45. **Board is now 28 open** (31 − 3 closed).
+
+## Board (28 open, verified 2026-08-24)
 
 `#37` mirror fate · `#36` watch releases after v0.2.4 *(re-scoped 08-24; v0.2.2 folded into #33)* ·
 `#35` `package=` aliases permanent · `#34` retire own-sequencer *(unblocks only if #33 targets
