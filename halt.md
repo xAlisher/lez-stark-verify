@@ -1,8 +1,31 @@
-# Halt — 2026-08-24 · zk-guess: fork source pushed (loss risk closed); compat re-aimed v0.2.1 → v0.2.4
+# Halt — 2026-08-24 · zk-guess: 3-instance play-test live-caught + fixed 2 real bugs (#46 UI, #47 fund race)
 
 > **Reconciled 2026-08-24** against `git`, `gh` (both repos), the ecodev wetware board, upstream
 > LEZ/spel tags, and live sequencer probes. This supersedes the 2026-08-07 halt, which had passed
 > its shelf life. Nothing has been built, played, or committed here since 2026-08-07.
+
+## Latest session — first live 3-instance play-test, two real bugs found + fixed
+
+Three isolated Basecamp instances were actually run against each other for the first time
+(#30's play-test setup). Mid-game, host + player 2 both hit "Fund from faucet" — both stuck for
+12+ minutes with a bare "funding…" label. Investigated to root cause rather than guessing:
+
+- **#47 (closed)** — `zkg_pot fund`'s claim races other concurrent claimants for Pinata's shared,
+  mutating state (every successful claim advances the seed). The loser's tx is silently dropped;
+  `poll_tx` can't tell "rejected" from "still pending", so the old code burned the full ~12 min
+  poll budget before failing. Fixed in fork `edf7579`: wait for the register tx's own inclusion,
+  retry the claim with a short (180s) outer deadline + jittered backoff instead of the full budget.
+  **Verified with real concurrent load**: old binary — 2/2 final concurrent runs **failed outright**
+  at 795s; new binary — **4/4 runs succeeded** (80s/84s/265s/497s), including two that lost their
+  first race and recovered via retry.
+- **#46 (in progress)** — companion UI fix. Added `potStage`, updated live by parsing `zkg_pot`'s
+  stdout as it streams, shown next to the fund/bet buttons (module `e729459`) — names the stage
+  instead of a bare spinner, muster's documented pattern. Headlessly verified (builds, deploys,
+  zero QML errors, string present in the `.so`). **Not yet visually confirmed rendering live** —
+  wetware, needs a GUI look.
+
+Both pushed: fork `edf7579` → `xAlisher/spel-lez-dev-repin`, module `e729459`+`aeece08` →
+`xAlisher/lez-stark-verify` `feat/tok-pot`.
 
 ## ▶ Resume this session
 
