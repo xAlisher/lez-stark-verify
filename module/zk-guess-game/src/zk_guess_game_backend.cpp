@@ -632,10 +632,11 @@ void ZkGuessGameBackend::proveGuess(int guess, const QString& byName)
                        QString::number(guess), out});
 }
 
-// Winner settles the win on-zone with a REAL STARK (the ~16min proof) against our public
-// sequencer — non-blocking: the win screen already shows the winner; this runs in the background
-// and lands a real block. Config comes from ENV (never shipped in the module): NSSA_SEQUENCER_URL
-// (default sequencer.logos.live), SEQ_BASIC_AUTH, and a settle binary (env SETTLE_BIN or bundled
+// Winner settles the win on-zone with a REAL STARK — non-blocking: the win screen already shows
+// the winner; this runs in the background and lands a real block. Config comes from ENV (never
+// shipped in the module): NSSA_SEQUENCER_URL (default the PUBLIC testnet — see ADR-0003/#34; our
+// own sequencer existed only for a circuit-ID mismatch that the v0.2.4 bump closed, verified
+// on-chain 2026-08-24), SEQ_BASIC_AUTH, and a settle binary (env SETTLE_BIN or bundled
 // beside the plugin as "settle-win"). r0vm = the bundled sibling. RISC0_DEV_MODE is cleared → real.
 QString ZkGuessGameBackend::settleOnLez()
 {
@@ -664,10 +665,10 @@ QString ZkGuessGameBackend::settleOnLez()
     const QString r0vm = QFileInfo(bin).absolutePath() + QStringLiteral("/r0vm");
     if (QFileInfo::exists(r0vm)) penv.insert(QStringLiteral("RISC0_SERVER_PATH"), r0vm);
     if (!penv.contains(QStringLiteral("NSSA_SEQUENCER_URL")))
-        penv.insert(QStringLiteral("NSSA_SEQUENCER_URL"), QStringLiteral("https://sequencer.logos.live"));
+        penv.insert(QStringLiteral("NSSA_SEQUENCER_URL"), QStringLiteral("https://testnet.lez.logos.co"));
     // Hand the real game's win to settle-win: it re-seals the commitment and submits the winning
-    // guess (== the sealed number → proves EQUAL) on-zone. sequencer.logos.live is un-gated, so no
-    // SEQ_BASIC_AUTH needed; if the sequencer is re-gated, set SEQ_BASIC_AUTH in the launch env.
+    // guess (== the sealed number → proves EQUAL) on-zone. The public testnet is un-gated, so no
+    // SEQ_BASIC_AUTH is needed; set it in the launch env only if pointing at a gated sequencer.
     penv.insert(QStringLiteral("ZKG_SECRET"), QString::number(m_secret));
     penv.insert(QStringLiteral("ZKG_BLIND"),  QString::number(m_blind));
     penv.insert(QStringLiteral("ZKG_GUESS"),  QString::number(m_secret));  // winning guess = the sealed number
@@ -747,7 +748,7 @@ void ZkGuessGameBackend::launchPot(const QString& action, const QHash<QString,QS
     const QString r0vm = QFileInfo(bin).absolutePath() + QStringLiteral("/r0vm");
     if (QFileInfo::exists(r0vm)) penv.insert(QStringLiteral("RISC0_SERVER_PATH"), r0vm);
     if (!penv.contains(QStringLiteral("NSSA_SEQUENCER_URL")))
-        penv.insert(QStringLiteral("NSSA_SEQUENCER_URL"), QStringLiteral("https://sequencer.logos.live"));
+        penv.insert(QStringLiteral("NSSA_SEQUENCER_URL"), QStringLiteral("https://testnet.lez.logos.co"));
     penv.insert(QStringLiteral("ZKG_ROOM_ID"), roomCode());   // shared invite code → same pot PDA for everyone
     const int cores = qMax(1, QThread::idealThreadCount());
     penv.insert(QStringLiteral("RAYON_NUM_THREADS"), QString::number(qMax(2, cores / 2)));
