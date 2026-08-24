@@ -92,9 +92,11 @@ blocked half.
 
 The v0.2.4 bump compiles but is unproven, and the two bins that could prove it don't build (#38).
 
-1. **Decide #38.** Pick the stopgap (option 1: settlement seals its own throwaway game — supply
-   `room_id`, `host_addr = self`, `host_bps = 0`, `deadline_block = u64::MAX`, pass the forced pot
-   account) so the settlement path compiles again. Do **not** pick option 3 here; that's Phase 3.
+1. ~~**Decide #38.**~~ **DONE 2026-08-24** — option 1, implemented on the **public** account path
+   (fork `71f9a4d`, [ADR-0008](adr/0008-public-account-path-for-settlement.md)). Both bins build.
+   The account-model unification is the part that matters: settlement and the pot are now on the
+   same path, which is the precondition for step 8. Two environment fixes were needed to get here —
+   `~/.risc0` was a dangling symlink into a cleaned tmp dir, and `r0vm` was never installed.
 2. **Run the acceptance test** from #33: a privacy-preserving tx from `zk-guess-program` accepted by
    `testnet.lez.logos.co`. This is the first real proof that v0.2.4 matches the live circuit.
    If it is rejected, fall back to `v0.2.2` — `lee/` is identical between them, so a rejection
