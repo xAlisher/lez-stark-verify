@@ -1,3 +1,19 @@
+# Halt — 2026-08-25 (end of session) · money layer fixed (#49/#49b/#50), UI display gap handed off as #48
+
+**Handed off to Hermes as [#48](https://github.com/xAlisher/lez-stark-verify/issues/48).** The
+faucet/wallet mechanics are genuinely fixed and verified live: real, growing, on-chain balances
+confirmed by direct chain query across every one of many rounds, stable addresses, fast sync. What
+remains broken is display-only — `onZoneFunded`/`myBalance` never reach the QML UI despite the
+backend's success paths appearing correct and `checkExistingFunding()` confirmed (via live process
+monitor) to actually fire at room entry. Read #48 before touching this again — it has the full
+evidence trail and the three concrete suspects worth checking next (QtRO property-sync, stale
+`this` capture, getting real stdout out of the live `QProcess` instead of only manual CLI repro).
+
+Committed + pushed this session: module `329e195` (`feat/tok-pot`), fork `351867d`
+(`compat/bump-lez-0.2.4`). Full investigation narrative in `docs/retro-log.md`.
+
+---
+
 # Halt — 2026-08-25 · #49/#49b fixed: funding never actually resynced or reused its own account
 
 > **Supersedes nothing below except the diagnosis** — the 2026-08-24 play-test findings (#46/#47)
