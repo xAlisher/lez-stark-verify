@@ -1,5 +1,6 @@
 #include "zk_guess_game_backend.h"
 #include "station_crypto.h"
+#include "pot_output_buffer.h"
 
 #include <QTimer>
 #include <QDebug>
@@ -784,22 +785,14 @@ void ZkGuessGameBackend::launchPot(const QString& action, const QHash<QString,QS
     // doing") -- a bare "funding..." label was indistinguishable from a hang during the ~12 min
     // worst case a lost faucet race can take. Parse zkg_pot's own progress lines as they arrive
     // (not just the final blob in the finished handler below) and surface them live via potStage.
-    auto full = std::make_shared<QByteArray>();
-    connect(p, &QProcess::readyReadStandardOutput, this, [this, p, full]{
-        full->append(p->readAllStandardOutput());
-        // #48 correction: was one full->remove(0, n) PER LINE -- QByteArray::remove() is O(bytes
-        // remaining), so shrinking the buffer once per line is O(lines * remaining) overall. A cold
-        // sync's "Stored persistent accounts" line prints once per synced block, so a genuinely cold
-        // wallet (thousands of blocks behind) delivers thousands of lines in ONE readyRead burst --
-        // turning this into real, seconds-long, UI-thread-blocking work every single time. That is
-        // the actual mechanism behind "funding... / no honest state, no resolving": the backend was
-        // making real progress the whole time: this handler was just too slow to get back to the Qt
-        // event loop to paint it. Scan by offset instead and erase the consumed prefix ONCE.
-        int start = 0;
-        int nl;
-        while ((nl = full->indexOf('\n', start)) >= 0) {
-            const QString line = QString::fromUtf8(full->constData() + start, nl - start).trimmed();
-            start = nl + 1;
+    auto output = std::make_shared<PotOutputBuffer>();
+    connect(p, &QProcess::readyReadStandardOutput, this, [this, p, output]{
+        // Keep the complete process output for the completion callback while separately consuming
+        // complete lines for live stage updates. The old single-buffer implementation removed each
+        // parsed line, so normal newline-terminated `addr`/`balance` output vanished before fund/bal
+        // callbacks could inspect it (#48).
+        const QStringList lines = output->append(p->readAllStandardOutput());
+        for (const QString& line : lines) {
             if (line.isEmpty()) continue;
             // Cheap prefix check before any regex -- this is what the vast majority of lines in a
             // cold-sync burst look like, and none of them carry stage information.
@@ -820,12 +813,11 @@ void ZkGuessGameBackend::launchPot(const QString& action, const QHash<QString,QS
                 setPotStage(QStringLiteral("done"));
             }
         }
-        if (start > 0) full->remove(0, start);   // one O(remaining) shrink per readyRead, not per line
     });
     connect(p, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
-            [this, p, full, cb](int code, QProcess::ExitStatus) {
-        full->append(p->readAllStandardOutput());   // anything left unflushed without a trailing \n
-        const QString out = QString::fromUtf8(*full);
+            [this, p, output, cb](int code, QProcess::ExitStatus) {
+        output->append(p->readAllStandardOutput());   // anything left unread when finished fires
+        const QString out = output->completeOutput();
         p->deleteLater();
         setPotBusy(false);
         setPotBusyLabel(QString());
