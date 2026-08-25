@@ -1,3 +1,51 @@
+# Halt — 2026-08-25 · #49/#49b fixed: funding never actually resynced or reused its own account
+
+> **Supersedes nothing below except the diagnosis** — the 2026-08-24 play-test findings (#46/#47)
+> stand; this just found the REAL cause of the follow-up complaint ("UI shows funding, no honest
+> state, no resolving") that showed up after #46/#47 shipped. Read this section first.
+
+## What was actually wrong (not what I first guessed)
+
+User report: fund clicks looked frozen, no visible progress, and re-funding kept happening on
+already-funded accounts even after a `checkExistingFunding()` guard was added. My first two
+hypotheses — Rust `println!` buffering, and an O(n²) `QByteArray::remove` in the C++
+`readyReadStandardOutput` handler — were both directly disproved by measurement (a live piped
+test of the real binary; a 20k-line microbenchmark showing 1ms vs 0ms). Rather than keep
+guessing on the C++ side, I reproduced the exact failure with the exact binary + env the app uses
+(`zkg_pot bal` against a live iso's wallet dir) and found two real bugs in
+`zk-guess-methods/src/bin/zkg_pot.rs::open_wallet`:
+
+- **#49** — `open_wallet()` called `WalletCore::new_init_storage()` unconditionally, which always
+  builds a **blank** `Storage` (`last_synced_block=0`) even when `storage.json` already had real
+  sync progress on disk. Every single CLI invocation — `bal`, `fund`, every retry inside the fund
+  loop — resynced the **entire chain from genesis** (confirmed: 22831 blocks, ~18–90s+ per call,
+  and this only gets worse as the chain grows). Fixed: check whether `storage.json` exists; if so,
+  load it via `WalletCore::new_update_chain()` (which actually reads `last_synced_block`) instead
+  of wiping it.
+- **#49b** — `create_new_account_public(None)` is **not idempotent**: it always mints a
+  brand-new, never-before-used account (confirmed: 3 consecutive calls on the same wallet dir
+  produced 3 different addresses, leaving 5 orphaned accounts in one iso's `storage.json`). Every
+  action was silently talking to a fresh address, so `checkExistingFunding()`'s own `bal` check
+  was *by construction* always going to see balance 0 on a brand-new account it had just minted.
+  Fixed: reuse the first account already in the loaded key chain (`public_account_ids().next()`);
+  only mint a new one the very first time a wallet dir is opened.
+
+Both fixes verified directly against a real iso's wallet dir (back-to-back `zkg_pot bal` calls):
+address is now stable across calls, and a second call resumes sync instead of restarting from 0
+(~8s vs 90s+/timeout). Rebuilt `zkg_pot` in place — since the live game invokes it via
+`ZKG_POT_BIN=.../target/release/zkg_pot` directly (not bundled into the module), the fix is
+already live for all 3 isos with no binary redeploy needed.
+
+Also shipped: a "my balance" readout next to the pot line in `Main.qml` (user asked for it
+mid-session), and redeployed the module (QML + the earlier offset-scan `readyReadStandardOutput`
+tidy-up, which is real but was **not** the cause of the freeze) to all 3 isos' `plugins/`.
+
+**Not yet done:** 2 of the 3 isos' `zk_guess_game` view processes exited on their own during the
+redeploy (only one was killed deliberately) — the game windows need to be reopened / room rejoined
+to pick up the new build and continue the play-test. Full retro in `docs/retro-log.md`.
+
+---
+
 # Halt — 2026-08-24 · zk-guess: 3-instance play-test live-caught + fixed 2 real bugs (#46 UI, #47 fund race)
 
 > **Reconciled 2026-08-24** against `git`, `gh` (both repos), the ecodev wetware board, upstream

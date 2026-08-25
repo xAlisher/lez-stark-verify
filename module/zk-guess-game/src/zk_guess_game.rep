@@ -39,6 +39,8 @@ class ZkGuessGame
     PROP(int     myBalance=0 READONLY)                // my pot-account balance (TOK)
     PROP(QString stakeState="none" READONLY)          // none|funding|staking|staked|refunding|refunded
     PROP(QString potStage="" READONLY)                // live narration of the current on-zone step (muster-style: name the stage, not a bare spinner) — #46/#47
+    PROP(bool    potBusy=false READONLY)              // ANY zkg_pot process is running right now, including the invisible startup balance check — #51 honest-state label
+    PROP(QString potBusyLabel="" READONLY)            // friendly name of what's running ("checking your balance", "funding from the faucet", ...)
     PROP(QString stakeTx="" READONLY)                 // my stake tx hash
     PROP(int     potTotal=0 READONLY)                 // sum of stakes seen this room
     PROP(bool    potReady=false READONLY)             // host created the on-zone pot → staking is open

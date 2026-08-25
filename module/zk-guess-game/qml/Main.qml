@@ -43,7 +43,7 @@ Rectangle {
         return ("0"+Math.floor(s/60)).slice(-2) + ":" + ("0"+(s%60)).slice(-2) }
     // one ticker drives both spinners; runs only while something is proving.
     Timer {
-        interval: 90; repeat: true; running: root.proving || root.settling
+        interval: 90; repeat: true; running: root.proving || root.settling || (backend && backend.potBusy)
         onRunningChanged: if (running) root.nowMs = Date.now()
         onTriggered: { root.spinIdx = (root.spinIdx + 1) % root.spinFrames.length; root.nowMs = Date.now() }
     }
@@ -180,6 +180,23 @@ Rectangle {
         }
         Rectangle { Layout.fillWidth: true; height: 1; color: "#1c2622" }
 
+        RowLayout {   // #51: ALWAYS-on honest-state banner -- every zkg_pot invocation, including
+                      // the silent startup balance check, shows what's running right now so a real
+                      // multi-minute wait (faucet race retries) never reads as a frozen UI.
+            visible: backend && backend.potBusy
+            spacing: 6
+            Text { text: "●"; color: root.amber; font.pixelSize: 10
+                   SequentialAnimation on opacity {
+                       loops: Animation.Infinite; running: backend && backend.potBusy
+                       NumberAnimation { to: 0.2; duration: 500 }
+                       NumberAnimation { to: 1.0; duration: 500 }
+                   } }
+            Text {
+                text: (backend ? backend.potBusyLabel : "") + ".".repeat(Math.floor(root.nowMs / 400) % 4)
+                color: root.amber; font.family: root.mono; font.pixelSize: 12; font.italic: true
+            }
+        }
+
         // ── TOK pot (EPIC D) — bet TOK, the proven winner takes the pot (minus a fixed dev + host cut) ──
         Rectangle {
             Layout.fillWidth: true; radius: 8; color: "#0e1613"; border.color: "#1c2622"; border.width: 1
@@ -210,6 +227,11 @@ Rectangle {
                     Text {
                         text: "🏆 pot " + (backend ? backend.potTotal : 0) + " TOK  ·  stake " + (backend ? backend.betAmount : 0)
                         color: root.amber; font.family: root.mono; font.pixelSize: 13; font.bold: true
+                    }
+                    Text {   // #49: my own on-zone balance, so a funded player can see it's real (not just "funded")
+                        visible: backend && backend.onZoneFunded
+                        text: "· my balance " + (backend ? backend.myBalance : 0) + " TOK"
+                        color: root.teal; font.family: root.mono; font.pixelSize: 12
                     }
                     Item { Layout.fillWidth: true }
                     GButton {

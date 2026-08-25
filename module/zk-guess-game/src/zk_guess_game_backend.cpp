@@ -748,6 +748,21 @@ void ZkGuessGameBackend::launchPot(const QString& action, const QHash<QString,QS
     if (bin.isEmpty())        { setLastError(QStringLiteral("pot: zkg_pot binary not bundled")); cb(-1, QString()); return; }
     if (roomCode().isEmpty()) { setLastError(QStringLiteral("pot: no room id")); cb(-1, QString()); return; }
 
+    // #51: an honest, ALWAYS-on "what's running right now" label -- unlike potStage (which only
+    // narrates while stakeState is funding/staking), this covers every zkg_pot invocation, including
+    // ones the user never explicitly triggered (checkExistingFunding's own startup balance check ran
+    // silently before this and gave zero visible feedback while it was working).
+    static const QHash<QString, QString> friendlyLabel{
+        {QStringLiteral("bal"),        QStringLiteral("checking your balance")},
+        {QStringLiteral("fund"),       QStringLiteral("funding from the faucet")},
+        {QStringLiteral("stake"),      QStringLiteral("placing your bet")},
+        {QStringLiteral("init"),       QStringLiteral("opening the pot")},
+        {QStringLiteral("record-win"), QStringLiteral("recording the win")},
+        {QStringLiteral("settle"),     QStringLiteral("settling the game")},
+        {QStringLiteral("refund"),     QStringLiteral("refunding your stake")},
+    };
+    setPotBusyLabel(friendlyLabel.value(action, action));
+    setPotBusy(true);
     setPotStage(QStringLiteral("starting"));
     QProcessEnvironment penv = QProcessEnvironment::systemEnvironment();
     if (qEnvironmentVariableIsSet("ZKG_POT_DEV")) penv.insert(QStringLiteral("RISC0_DEV_MODE"), QStringLiteral("1"));
@@ -772,11 +787,23 @@ void ZkGuessGameBackend::launchPot(const QString& action, const QHash<QString,QS
     auto full = std::make_shared<QByteArray>();
     connect(p, &QProcess::readyReadStandardOutput, this, [this, p, full]{
         full->append(p->readAllStandardOutput());
+        // #48 correction: was one full->remove(0, n) PER LINE -- QByteArray::remove() is O(bytes
+        // remaining), so shrinking the buffer once per line is O(lines * remaining) overall. A cold
+        // sync's "Stored persistent accounts" line prints once per synced block, so a genuinely cold
+        // wallet (thousands of blocks behind) delivers thousands of lines in ONE readyRead burst --
+        // turning this into real, seconds-long, UI-thread-blocking work every single time. That is
+        // the actual mechanism behind "funding... / no honest state, no resolving": the backend was
+        // making real progress the whole time: this handler was just too slow to get back to the Qt
+        // event loop to paint it. Scan by offset instead and erase the consumed prefix ONCE.
+        int start = 0;
         int nl;
-        while ((nl = full->indexOf('\n')) >= 0) {
-            const QString line = QString::fromUtf8(full->left(nl)).trimmed();
-            full->remove(0, nl + 1);
+        while ((nl = full->indexOf('\n', start)) >= 0) {
+            const QString line = QString::fromUtf8(full->constData() + start, nl - start).trimmed();
+            start = nl + 1;
             if (line.isEmpty()) continue;
+            // Cheap prefix check before any regex -- this is what the vast majority of lines in a
+            // cold-sync burst look like, and none of them carry stage information.
+            if (line.startsWith(QStringLiteral("Stored persistent accounts"))) continue;
             // #46/#47 correction: the wallet crate's own progress ("Poll N", "Starting poll for
             // transaction...") is a log::info! line, gated behind RUST_LOG -- which the real game
             // launch does NOT set, so env_logger prints nothing and that text never appears here.
@@ -793,12 +820,15 @@ void ZkGuessGameBackend::launchPot(const QString& action, const QHash<QString,QS
                 setPotStage(QStringLiteral("done"));
             }
         }
+        if (start > 0) full->remove(0, start);   // one O(remaining) shrink per readyRead, not per line
     });
     connect(p, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
-            [p, full, cb](int code, QProcess::ExitStatus) {
+            [this, p, full, cb](int code, QProcess::ExitStatus) {
         full->append(p->readAllStandardOutput());   // anything left unflushed without a trailing \n
         const QString out = QString::fromUtf8(*full);
         p->deleteLater();
+        setPotBusy(false);
+        setPotBusyLabel(QString());
         cb(code, out);
     });
     p->start(QStringLiteral("nice"), {QStringLiteral("-n"), QStringLiteral("15"), bin, action});
@@ -919,6 +949,11 @@ QString ZkGuessGameBackend::fundOnZone()
             setLastError(reason.isEmpty()
                 ? QStringLiteral("funding failed (exit %1)").arg(code)
                 : QStringLiteral("funding failed: %1").arg(reason));
+            // #50: a reported failure can still mean the claim actually landed -- confirmed live,
+            // the CLI can exit non-zero on a purely cosmetic step AFTER the on-chain claim already
+            // succeeded. Never trust the CLI's exit code alone for money; re-check the real chain
+            // state before letting the player believe funding truly failed.
+            checkExistingFunding();
         }
     });
     return QString();
