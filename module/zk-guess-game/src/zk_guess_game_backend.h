@@ -46,6 +46,7 @@ protected:
 
 private:
     void enterRoom(const QString& code, const QString& displayName, bool creator, const QString& roomName);
+    void checkExistingFunding();                     // restore onZoneFunded/myBalance from on-chain state at room entry
     void bringUpNodeThenJoin();
     void wireEvents();
     void subscribe(const QString& topic);

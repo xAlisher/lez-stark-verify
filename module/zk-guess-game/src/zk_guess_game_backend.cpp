@@ -127,6 +127,7 @@ void ZkGuessGameBackend::enterRoom(const QString& code, const QString& displayNa
     publishRoster();
     log(QStringLiteral("%1 room %2 on topic %3").arg(creator ? "created" : "joined", code, m_seg));
     bringUpNodeThenJoin();
+    checkExistingFunding();
 }
 
 void ZkGuessGameBackend::bringUpNodeThenJoin()
@@ -863,6 +864,33 @@ QString ZkGuessGameBackend::setBet(int amount)
     log(amount > 0 ? QStringLiteral("stake set to %1 TOK — fund + place your bet").arg(amount)
                    : QStringLiteral("free game (no stake)"));
     return QString();
+}
+
+// #48 follow-up: onZoneFunded/myBalance always started false/0 on a fresh app launch, regardless of
+// this device's ACTUAL on-chain state -- the persistent pot-wallet (one per device, by design)
+// could easily already hold TOK from an earlier session, or from an out-of-band recovery. Confirmed
+// live: a device recovered outside the running app still showed "Fund from faucet", and clicking it
+// funded (and re-claimed from the shared faucet) an already-funded account a second time. Runs once
+// per room entry, using the existing `bal` action -- cheap (one read, no proving) and harmless to
+// run even for a genuinely fresh device (reports balance 0, changes nothing).
+void ZkGuessGameBackend::checkExistingFunding()
+{
+    launchPot(QStringLiteral("bal"), {}, [this](int code, const QString& out) {
+        if (code != 0) return;   // not fatal -- worst case the Fund button still offers to fund
+        const auto mA = QRegularExpression(QStringLiteral("addr\\s+(\\S+)")).match(out);
+        const auto mB = QRegularExpression(QStringLiteral("balance\\s+(\\d+)")).match(out);
+        if (!mA.hasMatch() || !mB.hasMatch()) return;
+        const int bal = mB.captured(1).toInt();
+        setMyOnZoneAddr(mA.captured(1));
+        setMyBalance(bal);
+        if (bal > 0) {
+            m_onZoneAddr = mA.captured(1);
+            setOnZoneFunded(true);
+            log(QStringLiteral("this device is already funded on-zone (%1 TOK)").arg(bal));
+            sendEnvelope(QJsonObject{{"t","zaddr"},{"id",m_myId},{"addr",m_onZoneAddr}});
+            if (isCreator()) initPotIfBetting();
+        }
+    });
 }
 
 QString ZkGuessGameBackend::fundOnZone()
