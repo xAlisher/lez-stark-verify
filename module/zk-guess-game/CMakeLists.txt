@@ -16,6 +16,7 @@ logos_module(
     SOURCES
         src/zk_guess_game_backend.h
         src/zk_guess_game_backend.cpp
+        src/pot_output_buffer.h
         src/station_crypto.h
         src/station_crypto.cpp
     INCLUDE_DIRS

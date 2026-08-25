@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 spel-framework = { path = "../spel-framework" }
 nssa_core = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", rev = "787a15aad34acb89f750eadc4c41bfdf5c0d59a8", package = "lee_core" }
+authenticated_transfer_core = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", rev = "787a15aad34acb89f750eadc4c41bfdf5c0d59a8", package = "authenticated_transfer_core" }
 serde = { version = "1", features = ["derive"] }
 sha2 = { version = "0.10", default-features = false }
 

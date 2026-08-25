@@ -7,6 +7,8 @@
 #include <QSet>
 #include <QByteArray>
 #include <QJsonArray>
+#include <QProcessEnvironment>
+#include <functional>
 
 #include "rep_zk_guess_game_source.h"     // ZkGuessGameSimpleSource (repc from src/zk_guess_game.rep)
 #include "logos_sdk.h"                    // LogosModules (full def) + typed modules().delivery_module
@@ -33,12 +35,18 @@ public:
     QString submitGuess(int guess) override;
     QString settleOnLez() override;
     QString leaveRoom() override;
+    // ── TOK pot (EPIC D) ──
+    QString setBet(int amount) override;      // host, pre-start: set the room's stake size (0 = free)
+    QString fundOnZone() override;            // any player: create + faucet-fund my on-zone pot account
+    QString placeBet() override;              // player: stake betAmount into the pot
+    QString refundOnLez() override;           // reclaim my stake if the game abandoned
 
 protected:
     void onContextReady() override;
 
 private:
     void enterRoom(const QString& code, const QString& displayName, bool creator, const QString& roomName);
+    void checkExistingFunding();                     // restore onZoneFunded/myBalance from on-chain state at room entry
     void bringUpNodeThenJoin();
     void wireEvents();
     void subscribe(const QString& topic);
@@ -58,12 +66,22 @@ private:
     void broadcastRoster();                                     // host: broadcast the authoritative roster + turn order (#30)
     void refreshTurnOrder();                                    // host: rebuild turn order to include every non-host player (#30)
 
+    // ── TOK pot helpers (EPIC D) — each on-zone action shells out to the bundled `zkg_pot` binary ──
+    QString potBinary() const;                                  // ZKG_POT_BIN or bundled "zkg_pot" beside plugin
+    QString potHome() const;                                    // persistent pot-wallet dir (survives across turns)
+    void    launchPot(const QString& action, const QHash<QString,QString>& env,
+                      std::function<void(int, const QString&)> cb);   // build base env + run + parse output
+    void    initPotIfBetting();                                 // host: after seal, create the on-zone pot PDA
+    void    recomputePot();                                     // host: potTotal = Σ observed stakes
+    QString settlePotOnLez();                                   // host: 3-way split settle via zkg_pot
+
     quint64               m_hostSeed = 0;      // host's own committed entropy (kept secret)
     QHash<QString,QString> m_contribs;         // player id → mouse-draw contribution
+    QString               m_myContrib;         // my own submitted contribution → re-send until sealed (#seal-heal)
     QStringList           m_turnOrder;         // ordered non-host player ids (host-authoritative)
     int                   m_turnIdx = -1;
 
-    struct Player { QString name; QString role; qint64 lastSeenMs = 0; };
+    struct Player { QString name; QString role; qint64 lastSeenMs = 0; QString onZoneAddr; };
     QHash<QString, Player> m_players;   // keyed by player id
     QJsonArray m_chat;                  // [{id,name,text,ts}]
     QJsonArray m_turns;                 // [{name,guess,dir}]
@@ -73,6 +91,15 @@ private:
     quint64 m_blind  = 0;
     int     m_lo = 0;
     int     m_hi = 1000000;
+
+    // ── TOK pot state (EPIC D) ──
+    int     m_bet = 0;                 // room stake size in TOK; 0 = free game (no pot)
+    QString m_onZoneAddr;              // my on-zone pot account (from fundOnZone)
+    QString m_gameId;                  // host's on-zone game account (needed to stake / settle)
+    bool    m_potInitStarted = false;  // host: init_pot already launched
+    bool    m_recordedWin = false;     // winner: record-win already launched
+    QString m_winnerAddr;              // host: the winner's on-zone payout address (from "winbound")
+    QHash<QString,int> m_stakes;       // onZoneAddr → staked amount (host-side pot tally)
 
     QString    m_myId;
     QString    m_display;

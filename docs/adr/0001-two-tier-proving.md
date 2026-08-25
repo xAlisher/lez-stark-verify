@@ -3,8 +3,13 @@
 **Status:** accepted
 
 ## Context
-A RISC0 STARK for our guess guest costs **~16 min / ~9.6 GB peak** to prove in real mode, and ~ms to
-verify. A number-guessing party game has *many* turns and *one* win. If every turn had to wait ~16 min
+A RISC0 STARK for our guess guest costs **~9.5 min / ~9.6 GB peak** to prove in real mode, and ~ms to
+verify. *(Measured 2026-08-24: a full two-proof settlement took **1144 s = 19 min 04 s** wall-clock
+including inclusion, release build, 16 cores, public testnet — txs `880a5da1…` block 21696 and
+`64ecb5ea…` block 21706. The original ~16 min/proof figure in this ADR, and the ~30–40 min pair in
+the README, were both estimates and both pessimistic; the RAM figure held. See #41.)*
+
+A number-guessing party game has *many* turns and *one* win. If every turn had to wait ~9.5 min
 for a real proof, the game would be unplayable. But if nothing is ever a real STARK, "verified on LEZ"
 is theatre.
 
@@ -21,7 +26,7 @@ Prove in **two tiers**:
   (`RISC0_DEV_MODE=1`), ~1–3 s. Every turn shows `verified on LEZ ✓` and plays instantly.
 - **Win settlement** — **opt-in**, **real mode** (`RISC0_DEV_MODE` unset), submitted to our LEZ
   sequencer (ADR-0003). It runs **in the background** (non-blocking): the win screen shows the winner
-  immediately; a countdown + spinner track the ~16 min proof, resolving to `settled on LEZ ✓ block N`.
+  immediately; a countdown + spinner track the ~9.5 min proof, resolving to `settled on LEZ ✓ block N`.
 
 ## Consequences
 - The game is snappy; a real STARK still lands where it matters (the settled outcome), once per game.
@@ -30,4 +35,4 @@ Prove in **two tiers**:
   cost; that's a config, not a rewrite.
 - The 16 min is never on the critical path — "you can leave, the block lands whether or not you watch."
 - Follow-up: a dedicated single-tx `settle-win` binary bound to the actual game's `(secret, blind, C)`
-  so settlement proves *this* game's number in ~16 min flat (today's opt-in path reuses the e2e binary).
+  so settlement proves *this* game's number in ~9.5 min flat (today's opt-in path reuses the e2e binary).
