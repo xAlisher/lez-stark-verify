@@ -776,16 +776,16 @@ void ZkGuessGameBackend::launchPot(const QString& action, const QHash<QString,QS
             const QString line = QString::fromUtf8(full->left(nl)).trimmed();
             full->remove(0, nl + 1);
             if (line.isEmpty()) continue;
-            static const QRegularExpression rePoll(QStringLiteral("^\\[.*Poll (\\d+)$"));
-            static const QRegularExpression reRetry(QStringLiteral("^claim attempt (\\d+) lost the faucet race"));
+            // #46/#47 correction: the wallet crate's own progress ("Poll N", "Starting poll for
+            // transaction...") is a log::info! line, gated behind RUST_LOG -- which the real game
+            // launch does NOT set, so env_logger prints nothing and that text never appears here.
+            // Parse only markers zkg_pot itself prints unconditionally via println!/eprintln!:
+            // our own "stage: ..." lines, and the wallet crate's un-gated sync println!s.
+            static const QRegularExpression reStage(QStringLiteral("^stage: (.*)$"));
             static const QRegularExpression reSync(QStringLiteral("^Syncing to block \\S+\\. Blocks to sync: (\\d+)"));
             QRegularExpressionMatch m;
-            if ((m = rePoll.match(line)).hasMatch()) {
-                setPotStage(QStringLiteral("waiting for the chain to include this step (check %1)").arg(m.captured(1)));
-            } else if ((m = reRetry.match(line)).hasMatch()) {
-                setPotStage(QStringLiteral("someone else claimed first — trying again (attempt %1)").arg(m.captured(1).toInt() + 1));
-            } else if (line.startsWith(QStringLiteral("Starting poll for transaction"))) {
-                setPotStage(QStringLiteral("submitted — waiting for it to land on-zone"));
+            if ((m = reStage.match(line)).hasMatch()) {
+                setPotStage(m.captured(1));
             } else if ((m = reSync.match(line)).hasMatch() && m.captured(1).toInt() > 50) {
                 setPotStage(QStringLiteral("catching up to the chain tip (%1 blocks)").arg(m.captured(1)));
             } else if (line.startsWith(QStringLiteral("addr "))) {
